@@ -1,0 +1,5 @@
+name: ndp
+channels:
+  - conda-forge
+dependencies:
+  - pip
