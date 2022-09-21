@@ -1,0 +1,11 @@
+pandas
+geopandas
+osmnx
+momepy
+plotly
+Rtree
+geocoder
+scikit-learn
+statsmodels
+h3pandas
+streamlit

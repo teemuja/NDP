@@ -1,5 +1,16 @@
-name: ndp
+name: base
 channels:
   - conda-forge
+  - defaults
 dependencies:
-  - pip
+  - pandas
+  - geopandas
+  - osmnx
+  - momepy
+  - plotly
+  - Rtree
+  - geocoder
+  - scikit-learn
+  - statsmodels
+  - h3pandas
+  - streamlit
