@@ -1,6 +1,4 @@
 # NDP app always beta a lot
-from operator import index
-from turtle import title
 import pandas as pd
 import geopandas as gpd
 import numpy as np
