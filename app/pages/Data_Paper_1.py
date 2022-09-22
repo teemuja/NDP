@@ -1,4 +1,6 @@
 # NDP app always beta a lot
+from operator import index
+from turtle import title
 import pandas as pd
 import geopandas as gpd
 import numpy as np
@@ -26,7 +28,7 @@ st.markdown(f""" <style>
     </style> """, unsafe_allow_html=True)
 
 header = '<p style="font-family:sans-serif; color:grey; font-size: 12px;">\
-        NDP data paper #4 V0.9\
+        NDP data paper #1 V0.9\
         </p>'
 st.markdown(header, unsafe_allow_html=True)
 # plot size setup
@@ -47,7 +49,7 @@ NDP project studies correlation between urban density and <a href="https://sdgs.
 st.markdown(header_text, unsafe_allow_html=True)
 st.markdown("----")
 # content
-st.title("Data Paper #4")
+st.title("Data Paper #1")
 st.subheader("Correlation between urban density and amenities")
 ingress = '''
 <p style="font-family:sans-serif; color:Black; font-size: 14px;">
@@ -83,7 +85,7 @@ eng_feat = {
 
 @st.cache(allow_output_mutation=True)
 def load_data():
-    path = Path(__file__).parent / 'h3_10_PKS.csv'
+    path = Path(__file__).parent / 'data/h3_10_PKS.csv'
     with path.open() as f:
         data = pd.read_csv(f, index_col='h3_10', header=0)#.astype(str)
     # translate columns
@@ -180,6 +182,32 @@ if len(mygdf) > 1:
     
 else:
     st.stop()
+
+# scat plot
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+df = plot.copy()
+trace1 = go.Scatter(
+    x=df['Residential GFA in 2000'],
+    y=df['Crocery stores and kiosks in 2000'],
+    name='2000',
+    mode='markers'
+)
+trace2 = go.Scatter(
+    x=df['Residential GFA in 2016'],
+    y=df['Crocery stores and kiosks in 2016'],
+    name='2016',
+    yaxis='y2',
+    mode='markers'
+)
+scat = make_subplots(specs=[[{"secondary_y": True}]],
+                        x_title='Residential GFA in area',y_title='Crocery stores and kiosks in area')
+scat.add_trace(trace1)
+scat.add_trace(trace2,secondary_y=True)
+scat.update_layout(title=f'Number of croceries&kiosks vs residential GFA on resolution {level}')
+
+#scat = px.scatter(plot, x=x, y=y)
+st.plotly_chart(scat, use_container_width=True)
 
 st.markdown('---')
 
@@ -282,19 +310,6 @@ fig_corr = px.line(corrs,
 fig_corr.update_xaxes(autorange="reversed")#, side='top')
 fig_corr.update_layout(legend=dict(orientation="h",yanchor="bottom",y=-0.5,xanchor="right",x=1))
 st.plotly_chart(fig_corr, use_container_width=True)
-
-with st.expander('Correlation matrix', expanded=False):
-    st.markdown(f'Correlation matrix on resolution H{level} in {graph_title}')
-    st.caption('Adjust data in map for matrix')
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-    corr_mat = round(plot.corr(),2)
-    fig, ax = plt.subplots()
-    sns.set(font_scale=0.9)
-    mask = np.triu(np.ones_like(corr_mat, dtype=bool))
-    sns.heatmap(corr_mat, mask=mask, linewidths=2, linecolor='white', cmap="Greens", cbar=False,
-                vmin=0, vmax=1, annot = True, annot_kws={"size": 7}, ax=ax, square=True)
-    st.write(fig)
         
 with st.expander('Classification', expanded=False):        
     class_expl = """

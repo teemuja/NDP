@@ -130,3 +130,6 @@ dmypy.json
 
 # osx
 .DS_store
+
+# st
+.streamlit
