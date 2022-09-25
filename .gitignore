@@ -133,3 +133,4 @@ dmypy.json
 
 # st
 .streamlit
+app/cache/

@@ -1,3 +1,5 @@
 h3pandas
 streamlit
 plotly
+osmnx
+momepy
