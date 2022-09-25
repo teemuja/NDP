@@ -14,7 +14,7 @@ import json
 
 
 # page setup ---------------------------------------------------------------
-st.set_page_config(page_title="Data Paper #1", layout="wide")
+st.set_page_config(page_title="Data Paper #1", layout="wide", initial_sidebar_state='collapsed')
 padding = 1
 st.markdown(f""" <style>
     .reportview-container .main .block-container{{
@@ -52,7 +52,7 @@ st.subheader("Correlation between urban density and amenities")
 ingress = '''
 <p style="font-family:sans-serif; color:Black; font-size: 14px;">
 This data paper visualise the change in correlation between urban density and urban amenities.
-Research quest here is to see how often used argument of positive density impact on local amenities in
+Research quest here is to see how an often used argument of positive density impact on local amenities in
 urban planning works in different geographical scales. The research method is Pearson correlation calculations between
 gross floor area (GFA) and urban amenities in different scales.
 </p>
