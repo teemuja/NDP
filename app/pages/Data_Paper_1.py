@@ -143,7 +143,7 @@ col_list = mygdf.drop(columns=['kunta','pno']).columns.to_list()
 default_ix = col_list.index('Residential GFA in 2016')
 p1,p2 = st.columns(2)
 color = p1.selectbox('Filter by feature quantiles (%)', col_list, index=default_ix)
-q_range = p2.slider(' ',0,100,(10,90),10)
+q_range = p2.slider(' ',0,100,(0,100),10)
 mygdf = mygdf.loc[mygdf[f'{color}'].astype(int) > mygdf[f'{color}'].astype(int).quantile(q_range[0]/100)] 
 mygdf = mygdf.loc[mygdf[f'{color}'].astype(int) < mygdf[f'{color}'].astype(int).quantile(q_range[1]/100)]
 mapplace = st.empty()
@@ -329,6 +329,6 @@ with st.expander('Classification', expanded=False):
 footer_title = '''
 ---
 **Naked Density Project**
-[![MIT license](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/teemuja/ndp_app4/blob/main/LICENSE) 
+[![MIT license](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/teemuja/NDP/blob/main/LICENSE) 
 '''
 st.markdown(footer_title)

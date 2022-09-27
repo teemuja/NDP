@@ -328,6 +328,6 @@ with st.expander("What is this?", expanded=False):
 footer_title = '''
 ---
 **Naked Density Project**
-[![MIT license](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/teemuja) 
+[![MIT license](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/teemuja/NDP/blob/main/LICENSE) 
 '''
 st.markdown(footer_title)
