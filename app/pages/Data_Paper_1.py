@@ -318,10 +318,14 @@ with st.expander('Classification', expanded=False):
     _Information and communication_  
     _Financial and insurance activities_  
     _Other service activities_  
-
+    <p style="font-family:sans-serif; color:grey; font-size: 12px;">
     Original raw data is from
     <a href="https://research.aalto.fi/fi/projects/l%C3%A4hi%C3%B6iden-kehityssuunnat-ja-uudelleenkonseptointi-2020-luvun-segr " target="_blank">Re:Urbia</a>
-    -research project data retrieved from the data products "SeutuCD 2002" and "SeutuCD 2018" by Statistical Finland.
+    -research project data retrieved from the data products "SeutuCD 2002" and "SeutuCD 2018" by Statistical Finland. 
+    Data for company facilities in SeutuCD -products are two years older than the publishing year of the product while data for buildings is roughly one year old.  
+    Despite this small timespan inconsistency building data is treated as the data for the companies. 
+    The construction which adds a bit of gross floor area in some neighbourhoods within one year of time is analysed to be not relevant in amount for the validity issue in the scope of the study. 
+    Based on this alignment the data paper analyze the “eras” 2000 and 2016.
     """
     st.markdown(class_expl, unsafe_allow_html=True)
 
