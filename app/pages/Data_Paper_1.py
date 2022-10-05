@@ -70,15 +70,15 @@ eng_feat = {
     'palv_pien_2000':'One person companies (OPC) in urban amenities in 2000',
     'palv_2000':'Urban amenities (OPC excluded) in 2000',
     'kaup_2000':'Wholesale and retail trade in 2000',
-    'pt_2000':'Crocery stores and kiosks in 2000',
+    'pt_2000':'Grocery stores and kiosks in 2000',
     'palv_pien_2016':'One person companies (OPC) in urban amenities in 2016',
     'palv_2016':'Urban amenities (OPC excluded) in 2016',
     'kaup_2016':'Wholesale and retail trade in 2016',
-    'pt_2016':'Crocery stores and kiosks in 2016',
+    'pt_2016':'Grocery stores and kiosks in 2016',
     'palv_pien_muutos':'Change in one person companies (OPC) in urban amenities 2000-2016',
     'palv_muutos':'Cange in Urban amenities (OPC excluded) 2000-2016',
     'kaup_muutos':'Change in wholesale and retail trade 2000-2016',
-    'pt_muutos':'Change in Crocery stores and kiosks 2000-2016',
+    'pt_muutos':'Change in Grocery stores and kiosks 2000-2016',
 }
 
 @st.cache(allow_output_mutation=True)
@@ -140,6 +140,12 @@ else:
 
 # filters..
 col_list = mygdf.drop(columns=['kunta','pno']).columns.to_list()
+remove_list = ['Change in Grocery stores and kiosks 2000-2016',
+               'Change in wholesale and retail trade 2000-2016',
+               'Cange in Urban amenities (OPC excluded) 2000-2016',
+               'Change in one person companies (OPC) in urban amenities 2000-2016'
+               ]
+col_list.remove('Change in Grocery stores and kiosks 2000-2016')
 default_ix = col_list.index('Residential GFA in 2016')
 p1,p2 = st.columns(2)
 color = p1.selectbox('Filter by feature quantiles (%)', col_list, index=default_ix)
@@ -187,26 +193,26 @@ from plotly.subplots import make_subplots
 df = plot.copy()
 trace1 = go.Scatter(
     x=df['Residential GFA in 2000'],
-    y=df['Crocery stores and kiosks in 2000'],
+    y=df['Grocery stores and kiosks in 2000'],
     name='2000',
     mode='markers'
 )
 trace2 = go.Scatter(
     x=df['Residential GFA in 2016'],
-    y=df['Crocery stores and kiosks in 2016'],
+    y=df['Grocery stores and kiosks in 2016'],
     name='2016',
     yaxis='y2',
     mode='markers'
 )
 scat = make_subplots(specs=[[{"secondary_y": True}]],
-                        x_title='Residential GFA in area',y_title='Crocery stores and kiosks in area')
+                        x_title='Residential GFA in area',y_title='Grocery stores and kiosks in area')
 scat.add_trace(trace1)
 scat.add_trace(trace2,secondary_y=True)
-scat.update_layout(title=f'Number of croceries&kiosks vs residential GFA on resolution {level}')
+scat.update_layout(title=f'Number of groceries&kiosks vs residential GFA on resolution {level}')
 
 #scat = px.scatter(plot, x=x, y=y)
 st.plotly_chart(scat, use_container_width=True)
-
+st.caption('Note! Missing data in grocery stores 2016 in some shopping malls')
 st.markdown('---')
 
 # corr graphs
@@ -220,28 +226,28 @@ def corr_loss(df,h=10,corr_type='year'):
         y_list=['One person companies (OPC) in urban amenities in 2000',
                 'Urban amenities (OPC excluded) in 2000',
                 'Wholesale and retail trade in 2000',
-                'Crocery stores and kiosks in 2000']
+                'Grocery stores and kiosks in 2000']
     elif corr_type == '2016':
         x_list=['Total GFA in 2016',
                 'Residential GFA in 2016']
         y_list=['One person companies (OPC) in urban amenities in 2016',
                 'Urban amenities (OPC excluded) in 2016',
                 'Wholesale and retail trade in 2016',
-                'Crocery stores and kiosks in 2016']
+                'Grocery stores and kiosks in 2016']
     elif corr_type == 'year':
         x_list=['Total GFA',
                 'Residential GFA']
         y_list=['One person companies (OPC) in urban amenities',
                 'Urban amenities (OPC excluded)',
                 'Wholesale and retail trade',
-                'Crocery stores and kiosks']
+                'Grocery stores and kiosks']
     elif corr_type == 'change':
         x_list=['GFA change 2000-2016',
                 'Residential GFA change 2000-2016']
         y_list=['Change in one person companies (OPC) in urban amenities 2000-2016',
                 'Cange in Urban amenities (OPC excluded) 2000-2016',
                 'Change in wholesale and retail trade 2000-2016',
-                'Change in Crocery stores and kiosks 2000-2016',]
+                'Change in Grocery stores and kiosks 2000-2016',]
         
     frames = []
     for x in x_list:
@@ -277,8 +283,8 @@ facet_feat = {
     'Urban amenities (OPC excluded) in 2016':'Urban amenities (OPC excluded)',
     'Wholesale and retail trade in 2000':'Wholesale and retail trade',
     'Wholesale and retail trade in 2016':'Wholesale and retail trade',
-    'Crocery stores and kiosks in 2000':'Crocery stores and kiosks',
-    'Crocery stores and kiosks in 2016':'Crocery stores and kiosks',
+    'Grocery stores and kiosks in 2000':'Grocery stores and kiosks',
+    'Grocery stores and kiosks in 2016':'Grocery stores and kiosks',
 }
 facet_col_list_2000 = [
     'Total GFA in 2000',
@@ -286,7 +292,7 @@ facet_col_list_2000 = [
     'One person companies (OPC) in urban amenities in 2000',
     'Urban amenities (OPC excluded) in 2000',
     'Wholesale and retail trade in 2000',
-    'Crocery stores and kiosks in 2000'
+    'Grocery stores and kiosks in 2000'
 ]
 facet_col_list_2016 = [
     'Total GFA in 2016',
@@ -294,7 +300,7 @@ facet_col_list_2016 = [
     'One person companies (OPC) in urban amenities in 2016',
     'Urban amenities (OPC excluded) in 2016',
     'Wholesale and retail trade in 2016',
-    'Crocery stores and kiosks in 2016'
+    'Grocery stores and kiosks in 2016'
 ]
 corr_2000 = corr_loss(mygdf[facet_col_list_2000].rename(columns=facet_feat),corr_type='year')
 corr_2000['year'] = 2000
