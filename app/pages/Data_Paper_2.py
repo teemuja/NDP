@@ -1,4 +1,6 @@
 # NDP app always beta a lot
+from ast import Pass
+from unittest import case
 import pandas as pd
 import geopandas as gpd
 import numpy as np
@@ -23,7 +25,22 @@ st.markdown(f""" <style>
         padding-left: {padding}rem;
         padding-bottom: {padding}rem;
     }} </style> """, unsafe_allow_html=True)
-
+st.markdown("""
+    <style>
+    div.stButton > button:first-child {
+        background-color: #fab43a;
+        color:#ffffff;
+    }
+    div.stButton > button:hover {
+        background-color: #e75d35; 
+        color:#ffffff;
+        }
+    [data-testid="stMetricDelta"] svg {
+            display: none;}
+    button[title="View fullscreen"]{
+        visibility: hidden;}
+    </style>
+""", unsafe_allow_html=True)
 header = '<p style="font-family:sans-serif; color:grey; font-size: 12px;">\
         NDP Data Paper 2 V0.95 "Nordic Beta"\
         </p>'
@@ -51,7 +68,7 @@ st.markdown("Density measurement using Open Street Map data")
 st.markdown("###")
 st.title(':point_down:')
 
-@st.cache(allow_output_mutation=True)
+@st.experimental_memo()
 def get_data(add, tags, radius=500):
     gdf = ox.geometries_from_address(add, tags, radius)
     fp_proj = ox.project_gdf(gdf).reset_index()
@@ -127,7 +144,7 @@ with st.expander("Buildings on map", expanded=True):
 
 # -------------------------------------------------------------------
 
-#@st.cache(allow_output_mutation=True)
+@st.cache(allow_output_mutation=True,ttl=3600)
 def osm_densities(buildings):
     # projected crs for momepy calculations
     gdf = buildings.to_crs(3067)
@@ -144,7 +161,7 @@ def osm_densities(buildings):
                                 momepy.Area(gdf).series, 'uID')
     gdf['GSI'] = round(tess_GSI.series,3)
     # get mean floor num of the neighborhood for possible NaN values
-    gdf['ND_mean_floors'] = round(momepy.AverageCharacter(tessellation, values='building:levels', spatial_weights=sw,unique_id='uID').mean,0)
+    gdf['ND_mean_floors'] = round(momepy.AverageCharacter(tessellation, values='building:levels', spatial_weights=sw,unique_id='uID').median,0)
     gdf['ND_mean_floors'].fillna(1, inplace=True)
     # prepare GFAs
     if gdf["building:levels"] is not None:
@@ -178,7 +195,7 @@ def osm_densities(buildings):
     gdf_out = gdf.to_crs(4326)
     return gdf_out
 
-@st.cache(allow_output_mutation=True)
+@st.cache(allow_output_mutation=True, ttl=3600)
 def classify_density(density_data):
     density_data['OSR_class'] = 'nan'
     density_data.loc[density_data['OSR'] > 0, 'OSR_class'] = 'close'
@@ -208,19 +225,8 @@ colormap_osr = {
 # CALCULATE DENSITIES ----------------------------------
 
 st.markdown('###')
-m = st.markdown("""
-<style>
-div.stButton > button:first-child {
-    background-color: #fab43a;
-    color:#ffffff;
-}
-div.stButton > button:hover {
-    background-color: #e75d35; 
-    color:#ffffff;
-    }
-</style>""", unsafe_allow_html=True)
-run = st.button(f'Calculate densities for {add}')
-
+import time
+run = st.checkbox(f'Autocalculate densities')
 if run:
     density_data = osm_densities(buildings)
     case_data = classify_density(density_data)
@@ -228,48 +234,67 @@ else:
     st.stop()
 
 # Density expander...
-with st.expander("Density nomograms", expanded=True):
+with st.expander(f"Density nomograms for {add}", expanded=True):
     #OSR
-    fig_OSR = px.scatter(case_data, title='Density nomogram - OSR per plot',
+    fig_OSR = px.scatter(case_data, title='Buildings colored by OSR per plot',
                                       x='GSI', y='FSI', color='OSR_class', #size='GFA',
                                       log_y=False,
                                       hover_name='building',
                                       hover_data=['floors','GFA', 'FSI', 'GSI', 'OSR', 'OSR_ND'],
-                                      #labels={"OSR_class": 'Plot OSR class'},
+                                      labels={"OSR_ND_class": 'Density (OSR) class'},
                                       category_orders={'OSR_class': ['close','dense','compact','spacious','airy','spread']},
                                       color_discrete_map=colormap_osr
                                       )
-    fig_OSR.update_layout(xaxis_range=[0, 0.5], yaxis_range=[0, 3])
+    #fig_OSR.layout.update(showlegend=False)
     fig_OSR.update_xaxes(rangeslider_visible=False)
 
     #OSR_ND
-    fig_OSR_ND = px.scatter(case_data, title='Density nomogram - OSR of neighborhood',
-                                      x='GSI', y='FSI', color='OSR_ND_class', #size='GFA',
-                                      log_y=False,
-                                      hover_name='building',
-                                      hover_data=['floors','GFA', 'FSI', 'GSI', 'OSR', 'OSR_ND'],
-                                      #labels={"OSR_ND_class": 'Neighborhood OSR class'},
-                                      category_orders={'OSR_ND_class': ['close','dense','compact','spacious','airy','spread']},
-                                      color_discrete_map=colormap_osr
-                                      )
-    fig_OSR_ND.update_layout(xaxis_range=[0, 0.5], yaxis_range=[0, 3])
+    fig_OSR_ND = px.scatter(case_data, title='Buildings colored by OSR per neighbourhood',
+                            x='GSI', y='FSI', color='OSR_ND_class', #size='GFA',
+                            log_y=False,
+                            hover_name='building',
+                            hover_data=['floors','GFA', 'FSI', 'GSI', 'OSR', 'OSR_ND'],
+                            labels={"OSR_ND_class": 'Density (OSR) class'},
+                            category_orders={'OSR_ND_class': ['close','dense','compact','spacious','airy','spread']},
+                            color_discrete_map=colormap_osr
+                            )
     fig_OSR_ND.update_xaxes(rangeslider_visible=False)
-
+    #scale check
+    scale_check = st.checkbox('Use full range of data for axis')
+    if scale_check:
+        pass
+    else:
+        fig_OSR.update_layout(xaxis_range=[0, 0.5], yaxis_range=[0, 3])
+        fig_OSR_ND.update_layout(xaxis_range=[0, 0.5], yaxis_range=[0, 3])
     # charts..
     col1, col2 = st.columns(2)
     col1.plotly_chart(fig_OSR, use_container_width=True)
     col2.plotly_chart(fig_OSR_ND, use_container_width=True)
+    
+    # summary
+    tot_gfa = round(case_data['GFA'].sum(),-2)
+    e_area = tot_gfa/785375
+    #st.markdown(f'Total GFA: **{tot_gfa:,}** , Median plot density FSI/e=**{e_plot}**')
+    # calc tag accounts
+    tags = case_data.groupby(['building'])['building'].count()
+    toptags = tags.sort_values(ascending=False).head(3)
+    m1,m2,m3,m4 = st.columns(4)
+    m1.metric(label=f"Total GFA in {add}", value=f"{tot_gfa:,.0f} sqrm", delta=f"Areal density={e_area:.2f}")
+    #m2.metric(label=f"GFA {toptags.index[0]}", value=f"{toptags[0][0]:.0f}", delta=f"{e_plot:.0f}")
+    st.caption('Underground GFA is excluded. Value is based on footprints and floor number information.')
+    # continue some day..
+
+    st.markdown('---')
+    # describe_table
+    st.markdown(f'{add} data described')
+    des = case_data.drop(columns=['osmid', 'uID', 'ND_mean_floors']).describe()
+    st.dataframe(des)
 
     # prepare save..
     density_data.insert(0, 'TimeStamp', pd.to_datetime('now').replace(microsecond=0))
     density_data['date'] = density_data['TimeStamp'].dt.date
     save_me = density_data.drop(columns=(['uID', 'TimeStamp','OSR_class','OSR_ND_class'])).assign(location=add).fillna(0)
     save_me = save_me.assign(flr_rate=flr_rate)
-    # describe_table
-    st.markdown(f'{add} data described')
-    des = case_data.drop(columns=['osmid', 'uID', 'ND_mean_floors']).describe()
-    st.dataframe(des)
-    # save button -----------------------------------------------------------------------
     raks = save_me.to_csv().encode('utf-8')
     save = st.download_button(label="Save density data as CSV", data=raks, file_name=f'buildings_{add}.csv',mime='text/csv')
 

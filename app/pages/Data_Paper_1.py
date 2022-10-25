@@ -81,7 +81,7 @@ eng_feat = {
     'pt_muutos':'Change in Grocery stores and kiosks 2000-2016',
 }
 
-@st.cache(allow_output_mutation=True)
+@st.experimental_memo()
 def load_data():
     path = Path(__file__).parent / 'data/h3_10_PKS.csv'
     with path.open() as f:

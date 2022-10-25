@@ -1,5 +1,5 @@
 h3pandas
-streamlit
+streamlit==1.13.0
 plotly
 osmnx
 momepy
