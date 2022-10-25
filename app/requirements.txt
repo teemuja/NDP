@@ -1,5 +1,6 @@
 h3pandas
 streamlit==1.13.0
 plotly
+statsmodels
 osmnx
 momepy

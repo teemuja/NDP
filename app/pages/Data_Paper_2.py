@@ -42,7 +42,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 header = '<p style="font-family:sans-serif; color:grey; font-size: 12px;">\
-        NDP Data Paper 2 V0.95 "Nordic Beta"\
+        NDP Data Paper 2 V0.99 "Gretzky"\
         </p>'
 st.markdown(header, unsafe_allow_html=True)
 # plot size setup
@@ -64,7 +64,7 @@ st.markdown(header_text, unsafe_allow_html=True)
 st.markdown("----")
 
 st.title("Data Paper #2")
-st.markdown("Density measurement using Open Street Map data")
+st.markdown("Density measurements using Open Street Map data")
 st.markdown("###")
 st.title(':point_down:')
 
@@ -118,7 +118,7 @@ with st.spinner(text='preparing map...'):
     focus_gdf = gpd.GeoDataFrame(focus_circle, geometry=0)
     fp_cut = gpd.overlay(buildings, focus_gdf, how='intersection')  # CRS projected for both
 
-with st.expander("Buildings on map", expanded=True):
+with st.expander("Buildings on map", expanded=False):
     plot = fp_cut.to_crs(4326)
     lat = plot.unary_union.centroid.y
     lon = plot.unary_union.centroid.x
@@ -140,7 +140,7 @@ with st.expander("Buildings on map", expanded=True):
                                  )
     st.plotly_chart(mymap, use_container_width=True)
     flr_rate = round(buildings['building:levels'].isna().sum() / len(buildings.index) * 100,0)
-    st.caption(f'Floor number information in {flr_rate}% of buildings. The rest will be estimated using nearby averages.')
+    st.caption(f'Floor number information in {flr_rate}% of buildings. The rest will be estimated using nearby medians.')
 
 # -------------------------------------------------------------------
 
@@ -241,7 +241,7 @@ with st.expander(f"Density nomograms for {add}", expanded=True):
                                       log_y=False,
                                       hover_name='building',
                                       hover_data=['floors','GFA', 'FSI', 'GSI', 'OSR', 'OSR_ND'],
-                                      labels={"OSR_ND_class": 'Density (OSR) class'},
+                                      labels={"OSR_class": 'Density (OSR) class'},
                                       category_orders={'OSR_class': ['close','dense','compact','spacious','airy','spread']},
                                       color_discrete_map=colormap_osr
                                       )
@@ -278,10 +278,10 @@ with st.expander(f"Density nomograms for {add}", expanded=True):
     # calc tag accounts
     tags = case_data.groupby(['building'])['building'].count()
     toptags = tags.sort_values(ascending=False).head(3)
-    m1,m2,m3,m4 = st.columns(4)
-    m1.metric(label=f"Total GFA in {add}", value=f"{tot_gfa:,.0f} sqrm", delta=f"Areal density={e_area:.2f}")
+    m1,m2 = st.columns(2)
+    m1.metric(label=f"Total GFA in {add} in 500m radius", value=f"{tot_gfa:,.0f} sqrm", delta=f"Areal density = {e_area:.2f}")
     #m2.metric(label=f"GFA {toptags.index[0]}", value=f"{toptags[0][0]:.0f}", delta=f"{e_plot:.0f}")
-    st.caption('Underground GFA is excluded. Value is based on footprints and floor number information.')
+    st.caption('Values are based on footprints and floor number information. Underground GFA is excluded.')
     # continue some day..
 
     st.markdown('---')
