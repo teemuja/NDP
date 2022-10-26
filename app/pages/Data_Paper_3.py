@@ -64,10 +64,10 @@ st.markdown(header_text, unsafe_allow_html=True)
 st.markdown("----")
 # content
 st.title("Data Paper #3")
-st.subheader("Change in detail plans in Helsinki")
+st.subheader("Change in scale in detail plans in Helsinki")
 ingress = '''
 <p style="font-family:sans-serif; color:Black; font-size: 14px;">
-This data paper studies the change in scale in detail plans of Helsinki city from 1940s to 2020s
+This data paper studies the change in GFA and plan unit sizes in post-war detail plans by decades
 </p>
 '''
 st.markdown(ingress, unsafe_allow_html=True)
@@ -87,25 +87,35 @@ except:
 
 df_data['geometry'] = df_data['geometry'].apply(wkt.loads)
 hki_ak_data = gpd.GeoDataFrame(df_data, crs=4326, geometry='geometry')
-# plot
-plot = hki_ak_data.loc[hki_ak_data['vuosi'] > 1939]
-a_list = ['AK','AP']
-plot = plot[plot['kayttotarkoitusluokka_koodi'].isin(a_list)]
+# select designations
+all_list = hki_ak_data['kayttotarkoitusluokka_koodi'].unique().tolist()
+c1,c2 = st.columns(2)
+use_list = c1.multiselect('Select land use types to include',all_list,default=['C','AK','AP'])
+years = c2.slider('Set decades to include',1940,2020,(1970,2020),step=10)
+# create plot gdf
+plot = hki_ak_data.loc[(hki_ak_data['vuosikymmen'] >= years[0]) & (hki_ak_data['vuosikymmen'] <= years[1])]
+plot = plot[plot['kayttotarkoitusluokka_koodi'].isin(use_list)]
 plot['vuosikymmen'] = plot['vuosikymmen'].astype(str)
 
 # scatt plot
 plot = plot.loc[plot['rekisteriala'] < plot['rekisteriala'].quantile(0.99)]
 plot = plot.loc[plot['rakennusoikeus'] < plot['rakennusoikeus'].quantile(0.99)]
-fig = px.scatter(plot , color="vuosikymmen", x="rekisteriala", y="rakennusoikeus", opacity=0.6, trendline='ols',
+trendline = st.radio('Trendline model',['ols','lowess'], horizontal=True)
+fig = px.scatter(plot , color="vuosikymmen", x="rekisteriala", y="rakennusoikeus", opacity=0.6, trendline=trendline,
                  labels={'rakennusoikeus':'GFA','rekisteriala':'Plan area','vuosikymmen':'Decade'},
-                 title='GFA and plan sizes in detail plans in Helsinki by decade',
+                 title=f'GFA and plan sizes in detail plans in Helsinki by decade (trendline={trendline})',
                  color_discrete_sequence=px.colors.qualitative.Dark24)
 fig.update_traces(patch={"line": {"width": 5}}, selector={"legendgroup": "2020"})
 st.plotly_chart(fig, use_container_width=True)
 
 # summaries
 plot['tehokkuus'] = plot['rakennusoikeus']/plot['rekisteriala']
-
+gfa_1970 = plot.loc[plot['vuosikymmen'] == '1970']['rakennusoikeus'].median()
+e_1970 = plot.loc[plot['vuosikymmen'] == '1970']['tehokkuus'].median()
+gfa_1980 = plot.loc[plot['vuosikymmen'] == '1980']['rakennusoikeus'].median()
+e_1980 = plot.loc[plot['vuosikymmen'] == '1980']['tehokkuus'].median()
+gfa_1990 = plot.loc[plot['vuosikymmen'] == '1990']['rakennusoikeus'].median()
+e_1990 = plot.loc[plot['vuosikymmen'] == '1990']['tehokkuus'].median()
 gfa_2000 = plot.loc[plot['vuosikymmen'] == '2000']['rakennusoikeus'].median()
 e_2000 = plot.loc[plot['vuosikymmen'] == '2000']['tehokkuus'].median()
 gfa_2010 = plot.loc[plot['vuosikymmen'] == '2010']['rakennusoikeus'].median()
@@ -113,10 +123,13 @@ e_2010 = plot.loc[plot['vuosikymmen'] == '2010']['tehokkuus'].median()
 gfa_2020 = plot.loc[plot['vuosikymmen'] == '2020']['rakennusoikeus'].median()
 e_2020 = plot.loc[plot['vuosikymmen'] == '2020']['tehokkuus'].median()
 
-m1,m2,m3 = st.columns(3)
-m1.metric(label=f"Median GFA in 2000", value=f"{gfa_2000:,.0f} sqrm", delta=f"density e={e_2000:.2f}")
-m2.metric(label=f"Median GFA in 2010", value=f"{gfa_2010:,.0f} sqrm", delta=f"density e={e_2010:.2f}")
-m3.metric(label=f"Median GFA in 2020", value=f"{gfa_2020:,.0f} sqrm", delta=f"density e={e_2020:.2f}")
+m1,m2,m3,m4,m5,m6 = st.columns(6)
+m1.metric(label=f"Median GFA in 1970s", value=f"{gfa_1970:,.0f} sqrm", delta=f"median e={e_1970:.2f}")
+m2.metric(label=f"Median GFA in 1980s", value=f"{gfa_1980:,.0f} sqrm", delta=f"median e={e_1980:.2f}")
+m3.metric(label=f"Median GFA in 1990s", value=f"{gfa_1990:,.0f} sqrm", delta=f"median e={e_1990:.2f}")
+m4.metric(label=f"Median GFA in 2000s", value=f"{gfa_2000:,.0f} sqrm", delta=f"median e={e_2000:.2f}")
+m5.metric(label=f"Median GFA in 2010s", value=f"{gfa_2010:,.0f} sqrm", delta=f"median e={e_2010:.2f}")
+m6.metric(label=f"Median GFA in 2020s", value=f"{gfa_2020:,.0f} sqrm", delta=f"median e={e_2020:.2f}")
 
 # trendline info
 def trend_values(fig):
@@ -127,47 +140,52 @@ def trend_values(fig):
         r = model.iloc[i]["px_fit_results"]
         alpha = r.params[0] # constant
         beta = r.params[1] # slope
-        dec = 1940 + (i*10)
+        dec = years[0] + (i*10)
         df.loc[i] = [dec]+[alpha]+[beta]
     df['decade'] = df['decade'].astype(int).astype(str)
     return df
 
-trend = trend_values(fig)
-fig2 = px.scatter(trend , color="decade", x="constant", y="slope", opacity=0.9,
-                 labels={'decade':'Decade','constant':'Constant','slope':'Slope'},
-                 title='Details of trendlines of different decades',
-                 color_discrete_sequence=px.colors.qualitative.Dark24)
-st.plotly_chart(fig2, use_container_width=True)
+if trendline == 'ols':
+    with st.expander('OLS-trendline details',expanded=False):
+        trend = trend_values(fig)
+        fig2 = px.scatter(trend , color="decade", x="constant", y="slope", opacity=0.9,
+                        labels={'decade':'Decade','constant':'Constant','slope':'Slope'},
+                        title='Details of trendlines of different decades',
+                        color_discrete_sequence=px.colors.qualitative.Dark24)
+        st.plotly_chart(fig2, use_container_width=True)
 
 # map plot
-with st.expander("Plan boundaries on map", expanded=False):
-    lat = plot.unary_union.centroid.y
-    lon = plot.unary_union.centroid.x
-    mymap = px.choropleth_mapbox(plot,
-                                 geojson=plot.geometry,
-                                 locations=plot.index,
-                                 title='Plan boundaries on map',
-                                 color="vuosikymmen",
-                                 hover_name='kayttotarkoitusluokka_koodi',
-                                 hover_data=['vuosi','rakennusoikeus','kaavayksikkotunnus'],
-                                 #labels={"building": 'Building tags in use'},
-                                 mapbox_style=my_style,
-                                 color_discrete_sequence=px.colors.qualitative.D3,
-                                 center={"lat": lat, "lon": lon},
-                                 zoom=10,
-                                 opacity=0.8,
-                                 width=1200,
-                                 height=700
-                                 )
-    st.plotly_chart(mymap, use_container_width=True)
-
-    st.caption('Only housing plan units (AK or AP in the data) is included in the study.')
-    source = '''
-    <p style="font-family:sans-serif; color:dimgrey; font-size: 10px;">
-    Data: <a href="https://hri.fi/data/fi/dataset/helsingin-kaavayksikot" target="_blank">HRI & Helsinki</a>
-    </p>
-    '''
-    st.markdown(source, unsafe_allow_html=True)
+st.markdown('###')
+mapit = st.button('Create map of plan units')
+if mapit:
+    with st.spinner("Preparing map of plans..."):
+        lat = plot.unary_union.centroid.y
+        lon = plot.unary_union.centroid.x
+        mymap = px.choropleth_mapbox(plot,
+                                    geojson=plot.geometry,
+                                    locations=plot.index,
+                                    title='Plan units on map',
+                                    color="vuosikymmen",
+                                    hover_name='kayttotarkoitusluokka_koodi',
+                                    hover_data=['vuosi','rakennusoikeus','kaavayksikkotunnus'],
+                                    labels={"vuosikymmen": 'Decade'},
+                                    mapbox_style=my_style,
+                                    color_discrete_sequence=px.colors.qualitative.D3,
+                                    center={"lat": lat, "lon": lon},
+                                    zoom=10,
+                                    opacity=0.8,
+                                    width=1200,
+                                    height=700
+                                    )
+        st.plotly_chart(mymap, use_container_width=True)
+        plancount = len(plot)
+        st.caption(f'Total {plancount} plans of types {use_list} between {years[0]} and {years[1]}. Zero GFA plans excluded.')
+        source = '''
+        <p style="font-family:sans-serif; color:dimgrey; font-size: 10px;">
+        Data: <a href="https://hri.fi/data/fi/dataset/helsingin-kaavayksikot" target="_blank">HRI & Helsinki</a>
+        </p>
+        '''
+        st.markdown(source, unsafe_allow_html=True)
 
 #footer
 footer_title = '''

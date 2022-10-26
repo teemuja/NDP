@@ -195,14 +195,20 @@ trace1 = go.Scatter(
     x=df['Residential GFA in 2000'],
     y=df['Grocery stores and kiosks in 2000'],
     name='2000',
-    mode='markers'
+    mode='markers',
+    marker=dict(
+            color='Brown',
+            size=10)
 )
 trace2 = go.Scatter(
     x=df['Residential GFA in 2016'],
     y=df['Grocery stores and kiosks in 2016'],
     name='2016',
     yaxis='y2',
-    mode='markers'
+    mode='markers',
+    marker=dict(
+            color='Orange',
+            size=10)
 )
 scat = make_subplots(specs=[[{"secondary_y": True}]],
                         x_title='Residential GFA in area',y_title='Grocery stores and kiosks in area')
@@ -212,7 +218,7 @@ scat.update_layout(title=f'Number of groceries&kiosks vs residential GFA on reso
 
 #scat = px.scatter(plot, x=x, y=y)
 st.plotly_chart(scat, use_container_width=True)
-st.caption('Note! Missing data in grocery stores 2016 in some shopping malls')
+#st.caption('Note! Missing data in grocery stores 2016 in some shopping malls')
 st.markdown('---')
 
 # corr graphs
