@@ -144,7 +144,7 @@ with st.expander("Buildings on map", expanded=False):
 
 # -------------------------------------------------------------------
 
-@st.cache(allow_output_mutation=True,ttl=3600)
+@st.cache(allow_output_mutation=True,ttl=450)
 def osm_densities(buildings):
     # projected crs for momepy calculations
     gdf = buildings.to_crs(3067)
