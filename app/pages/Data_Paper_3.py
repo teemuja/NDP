@@ -68,7 +68,7 @@ st.markdown("Density measurements using Open Street Map data")
 st.markdown("###")
 st.title(':point_down:')
 
-@st.experimental_memo()
+@st.experimental_memo(ttl=900, max_entries=5)
 def get_data(add, tags, radius=500):
     gdf = ox.geometries_from_address(add, tags, radius)
     fp_proj = ox.project_gdf(gdf).reset_index()
@@ -118,33 +118,33 @@ with st.spinner(text='preparing map...'):
     focus_gdf = gpd.GeoDataFrame(focus_circle, geometry=0)
     fp_cut = gpd.overlay(buildings, focus_gdf, how='intersection')  # CRS projected for both
 
-with st.expander("Buildings on map", expanded=False):
-    plot = fp_cut.to_crs(4326)
-    lat = plot.unary_union.centroid.y
-    lon = plot.unary_union.centroid.x
-    mymap = px.choropleth_mapbox(plot,
-                                 geojson=plot.geometry,
-                                 locations=plot.index,
-                                 #title='Buildings',
-                                 color="building",
-                                 hover_name='building',
-                                 hover_data=['building:levels'],
-                                 labels={"building": 'Building tags in use'},
-                                 mapbox_style=my_style,
-                                 color_discrete_sequence=px.colors.qualitative.D3,
-                                 center={"lat": lat, "lon": lon},
-                                 zoom=14,
-                                 opacity=0.8,
-                                 width=1200,
-                                 height=700
-                                 )
-    st.plotly_chart(mymap, use_container_width=True)
-    flr_rate = round(buildings['building:levels'].isna().sum() / len(buildings.index) * 100,0)
-    st.caption(f'Floor number information in {flr_rate}% of buildings. The rest will be estimated using nearby medians.')
+
+plot = fp_cut.to_crs(4326)
+lat = plot.unary_union.centroid.y
+lon = plot.unary_union.centroid.x
+mymap = px.choropleth_mapbox(plot,
+                                geojson=plot.geometry,
+                                locations=plot.index,
+                                title=f'{add} buildings on map',
+                                color="building",
+                                hover_name='building',
+                                hover_data=['building:levels'],
+                                labels={"building": 'Building tags in use'},
+                                mapbox_style=my_style,
+                                color_discrete_sequence=px.colors.qualitative.D3,
+                                center={"lat": lat, "lon": lon},
+                                zoom=14,
+                                opacity=0.8,
+                                width=1200,
+                                height=700
+                                )
+st.plotly_chart(mymap, use_container_width=True)
+flr_rate = round(buildings['building:levels'].isna().sum() / len(buildings.index) * 100,0)
+st.caption(f'Floor number information in {flr_rate}% of buildings. The rest will be estimated using nearby medians.')
 
 # -------------------------------------------------------------------
 
-@st.cache(allow_output_mutation=True,ttl=450)
+@st.cache(allow_output_mutation=True,ttl=120)
 def osm_densities(buildings):
     # projected crs for momepy calculations
     gdf = buildings.to_crs(3067)
@@ -195,7 +195,6 @@ def osm_densities(buildings):
     gdf_out = gdf.to_crs(4326)
     return gdf_out
 
-@st.cache(allow_output_mutation=True, ttl=3600)
 def classify_density(density_data):
     density_data['OSR_class'] = 'nan'
     density_data.loc[density_data['OSR'] > 0, 'OSR_class'] = 'close'
@@ -213,6 +212,22 @@ def classify_density(density_data):
     density_data.loc[density_data['OSR_ND'] > 16, 'OSR_ND_class'] = 'spread'
     return density_data
 
+
+# CALCULATE DENSITIES ----------------------------------
+
+st.markdown('---')
+tags = buildings['building'].unique().tolist()
+mytags = st.multiselect('Remove tags to exclude from density analysis',tags,default=tags)
+my_buildings = buildings.loc[buildings['building'].isin(mytags)]
+
+run = st.checkbox('Autocalculate densities')
+if run:
+    density_data = osm_densities(my_buildings)
+    case_data = classify_density(density_data)
+else:
+    st.stop()
+
+# for density plot
 colormap_osr = {
     "close": "red",
     "dense": "darkgoldenrod",
@@ -222,17 +237,6 @@ colormap_osr = {
     "spread": "lightblue",
     "nan":"grey"
 }
-# CALCULATE DENSITIES ----------------------------------
-
-st.markdown('###')
-import time
-run = st.checkbox(f'Autocalculate densities')
-if run:
-    density_data = osm_densities(buildings)
-    case_data = classify_density(density_data)
-else:
-    st.stop()
-
 # Density expander...
 with st.expander(f"Density nomograms for {add}", expanded=True):
     #OSR
