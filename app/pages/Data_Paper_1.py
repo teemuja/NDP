@@ -77,7 +77,7 @@ st.markdown(ingress, unsafe_allow_html=True)
 def load_data():
     path = Path(__file__).parent / 'data/hki_ak_data_202210.csv'
     with path.open() as f:
-        data = pd.read_csv(f, index_col='kaavatunnus', header=0)#.astype(str)
+        data = pd.read_csv(f, index_col='kaavayksikkotunnus', header=0)#.astype(str)
     return data
 try:
     df_data = load_data()
@@ -93,7 +93,7 @@ hki_ak_data = hki_ak_data.loc[hki_ak_data['rakennusoikeus'] != 0]
 # select designations
 all_list = hki_ak_data['kayttotarkoitusluokka_koodi'].unique().tolist()
 c1,c2 = st.columns(2)
-use_list = c1.multiselect('Select land use types to include',all_list,default=['C','AK','AP'])
+use_list = c1.multiselect('Select land use types to include',all_list,default=['C','AK'])
 years = c2.slider('Set decades to include',1940,2020,(1940,2020),step=10)
 trendline = st.radio('Trendline model',['lowess','ols'], horizontal=True)
 # create plot gdf
@@ -101,30 +101,33 @@ plot = hki_ak_data.loc[(hki_ak_data['vuosikymmen'] >= years[0]) & (hki_ak_data['
 plot = plot[plot['kayttotarkoitusluokka_koodi'].isin(use_list)]
 plot['vuosikymmen'] = plot['vuosikymmen'].astype(str)
 
-# scatt plot
-plot = plot.loc[plot['rekisteriala'] < plot['rekisteriala'].quantile(0.99)]
-plot = plot.loc[plot['rakennusoikeus'] < plot['rakennusoikeus'].quantile(0.99)]
-fig = px.scatter(plot , color="vuosikymmen", x="rekisteriala", y="rakennusoikeus", opacity=0.6, trendline=trendline,
+# exclude outliers for scatt plot
+scatt = plot.loc[plot['rekisteriala'] < plot['rekisteriala'].quantile(0.9)]
+scatt = plot.loc[plot['rakennusoikeus'] < plot['rakennusoikeus'].quantile(0.9)]
+range_y = plot['rakennusoikeus'].quantile(0.9) + 500
+fig = px.scatter(scatt , color="vuosikymmen", x="rekisteriala", y="rakennusoikeus", opacity=0.6, trendline=trendline,
                  labels={'rakennusoikeus':'GFA','rekisteriala':'Plan area','vuosikymmen':'Decade'},
                  title=f'GFA and plan sizes in detail plans in Helsinki by decade (trendline={trendline})',
+                 range_y=[0,range_y],
                  color_discrete_sequence=px.colors.qualitative.Dark24)
 fig.update_traces(patch={"line": {"width": 5}}, selector={"legendgroup": "2020"})
 st.plotly_chart(fig, use_container_width=True)
+st.caption('High quantiles(>90%) of plan area values are excluded in the scatter plot for better focus.')
 
 # summaries
-plot['tehokkuus'] = plot['rakennusoikeus']/plot['rekisteriala']
-gfa_1970 = plot.loc[plot['vuosikymmen'] == '1970']['rakennusoikeus'].median()
-e_1970 = plot.loc[plot['vuosikymmen'] == '1970']['tehokkuus'].median()
-gfa_1980 = plot.loc[plot['vuosikymmen'] == '1980']['rakennusoikeus'].median()
-e_1980 = plot.loc[plot['vuosikymmen'] == '1980']['tehokkuus'].median()
-gfa_1990 = plot.loc[plot['vuosikymmen'] == '1990']['rakennusoikeus'].median()
-e_1990 = plot.loc[plot['vuosikymmen'] == '1990']['tehokkuus'].median()
-gfa_2000 = plot.loc[plot['vuosikymmen'] == '2000']['rakennusoikeus'].median()
-e_2000 = plot.loc[plot['vuosikymmen'] == '2000']['tehokkuus'].median()
-gfa_2010 = plot.loc[plot['vuosikymmen'] == '2010']['rakennusoikeus'].median()
-e_2010 = plot.loc[plot['vuosikymmen'] == '2010']['tehokkuus'].median()
-gfa_2020 = plot.loc[plot['vuosikymmen'] == '2020']['rakennusoikeus'].median()
-e_2020 = plot.loc[plot['vuosikymmen'] == '2020']['tehokkuus'].median()
+scatt['tehokkuus'] = scatt['rakennusoikeus']/scatt['rekisteriala']
+gfa_1970 = scatt.loc[scatt['vuosikymmen'] == '1970']['rakennusoikeus'].median()
+e_1970 = scatt.loc[scatt['vuosikymmen'] == '1970']['tehokkuus'].median()
+gfa_1980 = scatt.loc[scatt['vuosikymmen'] == '1980']['rakennusoikeus'].median()
+e_1980 = scatt.loc[scatt['vuosikymmen'] == '1980']['tehokkuus'].median()
+gfa_1990 = scatt.loc[scatt['vuosikymmen'] == '1990']['rakennusoikeus'].median()
+e_1990 = scatt.loc[scatt['vuosikymmen'] == '1990']['tehokkuus'].median()
+gfa_2000 = scatt.loc[scatt['vuosikymmen'] == '2000']['rakennusoikeus'].median()
+e_2000 = scatt.loc[scatt['vuosikymmen'] == '2000']['tehokkuus'].median()
+gfa_2010 = scatt.loc[scatt['vuosikymmen'] == '2010']['rakennusoikeus'].median()
+e_2010 = scatt.loc[scatt['vuosikymmen'] == '2010']['tehokkuus'].median()
+gfa_2020 = scatt.loc[scatt['vuosikymmen'] == '2020']['rakennusoikeus'].median()
+e_2020 = scatt.loc[scatt['vuosikymmen'] == '2020']['tehokkuus'].median()
 
 m1,m2,m3,m4,m5,m6 = st.columns(6)
 m1.metric(label=f"Median GFA in 1970s", value=f"{gfa_1970:,.0f} sqrm", delta=f"median e={e_1970:.2f}")
@@ -161,41 +164,46 @@ if trendline == 'ols':
 
 # map plot
 st.markdown('###')
-mapit = st.button('Create map of plan units')
-if mapit:
-    with st.spinner("Preparing map of plans..."):
-        lat = plot.unary_union.centroid.y
-        lon = plot.unary_union.centroid.x
-        mymap = px.choropleth_mapbox(plot,
-                                    geojson=plot.geometry,
-                                    locations=plot.index,
-                                    title='Plan units on map',
-                                    color="vuosikymmen",
-                                    hover_name='kayttotarkoitusluokka_koodi',
-                                    hover_data=['vuosi','rakennusoikeus','kaavayksikkotunnus'],
-                                    labels={"vuosikymmen": 'Decade'},
-                                    mapbox_style=my_style,
-                                    color_discrete_sequence=px.colors.qualitative.D3,
-                                    center={"lat": lat, "lon": lon},
-                                    zoom=10,
-                                    opacity=0.8,
-                                    width=1200,
-                                    height=700
-                                    )
-        st.plotly_chart(mymap, use_container_width=True)
-        plancount = len(plot)
-        st.caption(f'Total {plancount} plans of types {use_list} between {years[0]} and {years[1]}. Zero GFA plans excluded.')
-        source = '''
-        <p style="font-family:sans-serif; color:dimgrey; font-size: 10px;">
-        Data: <a href="https://hri.fi/data/fi/dataset/helsingin-kaavayksikot" target="_blank">HRI & Helsinki</a>
-        </p>
-        '''
-        st.markdown(source, unsafe_allow_html=True)
+decade_list = plot['vuosikymmen'].unique().tolist()
+decade_list.insert(0,'Decade..')
+mydecade = st.selectbox('Plot plan units from..',decade_list)
+if mydecade != 'Decade..':
+    mapplot = plot.loc[plot['vuosikymmen'] == mydecade]
+    lat = mapplot.unary_union.centroid.y
+    lon = mapplot.unary_union.centroid.x
+    mymap = px.choropleth_mapbox(mapplot,
+                                geojson=mapplot.geometry,
+                                locations=mapplot.index,
+                                title='Plan units on map',
+                                color="vuosikymmen",
+                                hover_name='kayttotarkoitusluokka_koodi',
+                                hover_data=['vuosi','rakennusoikeus','kaavatunnus'],
+                                labels={"vuosikymmen": 'Decade'},
+                                mapbox_style=my_style,
+                                color_discrete_sequence=px.colors.qualitative.D3,
+                                center={"lat": lat, "lon": lon},
+                                zoom=10,
+                                opacity=0.8,
+                                width=1200,
+                                height=700
+                                )
+    st.plotly_chart(mymap, use_container_width=True)
+
+    plancount = len(mapplot)
+    st.caption(f'Total {plancount} plans of types {use_list} in {mydecade}. Zero GFA units excluded.')
+    source = '''
+    <p style="font-family:sans-serif; color:dimgrey; font-size: 10px;">
+    Data: <a href="https://hri.fi/data/fi/dataset/helsingin-kaavayksikot" target="_blank">HRI & Helsinki</a>
+    </p>
+    '''
+    st.markdown(source, unsafe_allow_html=True)
 
 #footer
+st.markdown('---')
 footer_title = '''
----
 **Naked Density Project**
 [![MIT license](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/teemuja/NDP/blob/main/LICENSE) 
 '''
 st.markdown(footer_title)
+disclamer = 'Data papers are constant work in progress and will be upgraded, changed & fixed for errors while research go on.'
+st.caption('Disclamer: ' + disclamer)

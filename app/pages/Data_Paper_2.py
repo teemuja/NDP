@@ -342,9 +342,11 @@ with st.expander('Classification', expanded=False):
     st.markdown(class_expl, unsafe_allow_html=True)
 
 #footer
+st.markdown('---')
 footer_title = '''
----
 **Naked Density Project**
 [![MIT license](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/teemuja/NDP/blob/main/LICENSE) 
 '''
 st.markdown(footer_title)
+disclamer = 'Data papers are constant work in progress and will be upgraded, changed & fixed for errors while research go on.'
+st.caption('Disclamer: ' + disclamer)
