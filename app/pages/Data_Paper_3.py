@@ -76,7 +76,7 @@ def get_data(add, tags, radius=500):
     if 'building:levels' in fp_proj:
         fp_poly = fp_proj[["osmid", "geometry", "building", 'building:levels']]
     else:
-        fp_proj['building:levels'] = [ random.randint(1,2) for k in fp_proj.index]
+        fp_proj['building:levels'] = None #[ random.randint(1,2) for k in fp_proj.index]
         fp_poly = fp_proj[["osmid", "geometry", "building", 'building:levels']]
     fp_poly["area"] = fp_poly.area
     # exclude all small footprints !!!
@@ -120,6 +120,8 @@ with st.spinner(text='preparing map...'):
 
 
 plot = fp_cut.to_crs(4326)
+# tag reorder
+tag_order = plot.building.value_counts().index.tolist()
 lat = plot.unary_union.centroid.y
 lon = plot.unary_union.centroid.x
 mymap = px.choropleth_mapbox(plot,
@@ -130,6 +132,7 @@ mymap = px.choropleth_mapbox(plot,
                                 hover_name='building',
                                 hover_data=['building:levels'],
                                 labels={"building": 'Building tags in use'},
+                                category_orders={"building":tag_order},
                                 mapbox_style=my_style,
                                 color_discrete_sequence=px.colors.qualitative.D3,
                                 center={"lat": lat, "lon": lon},
@@ -151,10 +154,11 @@ def osm_densities(buildings):
     gdf['uID'] = momepy.unique_id(gdf)
     limit = momepy.buffered_limit(gdf)
     tessellation = momepy.Tessellation(gdf, unique_id='uID', limit=limit).tessellation
-    # queen contiguity for 2 degree neighbours = "perceived neighborhood"
+    # replace none floors with nearby medians from 2 degree neighborhoods
     sw = momepy.sw_high(k=2, gdf=tessellation, ids='uID')
-    # add OSR values to tesselation areas for calculation below
     tessellation = tessellation.merge(gdf[['uID', 'building:levels']])
+    if gdf['building:levels'] is not None:
+        gdf['building:levels'] = round(momepy.AverageCharacter(tessellation, values='building:levels', spatial_weights=sw, unique_id='uID').median, 0)    
     # calculate GSI = ground space index = coverage = CAR = coverage area ratio
     tess_GSI = momepy.AreaRatio(tessellation, gdf,
                                 momepy.Area(tessellation).series,
@@ -217,7 +221,9 @@ def classify_density(density_data):
 
 st.markdown('---')
 tags = buildings['building'].unique().tolist()
-mytags = st.multiselect('Remove tags to exclude from density analysis',tags,default=tags)
+# get most common list of tags in use in area
+top_tags = tag_order[:9] # top 9 
+mytags = st.multiselect('Select tags(building types) to include for density analysis',tags,default=top_tags)
 my_buildings = buildings.loc[buildings['building'].isin(mytags)]
 
 run = st.checkbox('Autocalculate densities')
@@ -239,18 +245,20 @@ colormap_osr = {
 }
 # Density expander...
 with st.expander(f"Density nomograms for {add}", expanded=True):
+    # maxes
+    FSI_scale_max = case_data['FSI'].quantile(0.9)
     #OSR
-    fig_OSR = px.scatter(case_data, title='Buildings colored by OSR per plot',
+    fig_OSR = px.scatter(case_data, title='Buildings colored by OSR per (mophological) plot',
                                       x='GSI', y='FSI', color='OSR_class', #size='GFA',
                                       log_y=False,
                                       hover_name='building',
                                       hover_data=['floors','GFA', 'FSI', 'GSI', 'OSR', 'OSR_ND'],
-                                      labels={"OSR_class": 'Density (OSR) class'},
+                                      labels={"OSR_class": 'Plot density'},
                                       category_orders={'OSR_class': ['close','dense','compact','spacious','airy','spread']},
                                       color_discrete_map=colormap_osr
                                       )
-    #fig_OSR.layout.update(showlegend=False)
-    fig_OSR.update_xaxes(rangeslider_visible=False)
+    fig_OSR.update_layout(xaxis_range=[0, 0.75], yaxis_range=[0, FSI_scale_max])
+    fig_OSR.update_xaxes(rangeslider_visible=True)
 
     #OSR_ND
     fig_OSR_ND = px.scatter(case_data, title='Buildings colored by OSR per neighbourhood',
@@ -258,24 +266,20 @@ with st.expander(f"Density nomograms for {add}", expanded=True):
                             log_y=False,
                             hover_name='building',
                             hover_data=['floors','GFA', 'FSI', 'GSI', 'OSR', 'OSR_ND'],
-                            labels={"OSR_ND_class": 'Density (OSR) class'},
+                            labels={"OSR_ND_class": 'Neigbourhood density'},
                             category_orders={'OSR_ND_class': ['close','dense','compact','spacious','airy','spread']},
                             color_discrete_map=colormap_osr
                             )
-    fig_OSR_ND.update_xaxes(rangeslider_visible=False)
-    #scale check
-    scale_check = st.checkbox('Use full range of data for axis')
-    if scale_check:
-        pass
-    else:
-        fig_OSR.update_layout(xaxis_range=[0, 0.5], yaxis_range=[0, 3])
-        fig_OSR_ND.update_layout(xaxis_range=[0, 0.5], yaxis_range=[0, 3])
+    fig_OSR_ND.update_layout(xaxis_range=[0, 0.75], yaxis_range=[0, FSI_scale_max])
+    fig_OSR_ND.update_xaxes(rangeslider_visible=True)
+    
     # charts..
     col1, col2 = st.columns(2)
     col1.plotly_chart(fig_OSR, use_container_width=True)
     col2.plotly_chart(fig_OSR_ND, use_container_width=True)
     
     # summary
+    bu_count = len(case_data)
     tot_gfa = round(case_data['GFA'].sum(),-2)
     e_area = tot_gfa/785375
     #st.markdown(f'Total GFA: **{tot_gfa:,}** , Median plot density FSI/e=**{e_plot}**')
@@ -283,7 +287,7 @@ with st.expander(f"Density nomograms for {add}", expanded=True):
     tags = case_data.groupby(['building'])['building'].count()
     toptags = tags.sort_values(ascending=False).head(3)
     m1,m2 = st.columns(2)
-    m1.metric(label=f"Total GFA in {add} in 500m radius", value=f"{tot_gfa:,.0f} sqrm", delta=f"Areal density = {e_area:.2f}")
+    m1.metric(label=f"Total GFA in {add} in 500m radius ({bu_count} buildings)", value=f"{tot_gfa:,.0f} sqrm", delta=f"Areal density = {e_area:.2f}")
     #m2.metric(label=f"GFA {toptags.index[0]}", value=f"{toptags[0][0]:.0f}", delta=f"{e_plot:.0f}")
     st.caption('Values are based on footprints and floor number information. Underground GFA is excluded.')
     # continue some day..
