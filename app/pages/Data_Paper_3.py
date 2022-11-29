@@ -12,7 +12,8 @@ shapely.speedups.enable()
 import plotly.express as px
 px.set_mapbox_access_token(st.secrets['MAPBOX_TOKEN'])
 my_style = st.secrets['MAPBOX_STYLE']
-import random
+import math
+import statistics
 
 
 # page setup ---------------------------------------------------------------
@@ -73,25 +74,20 @@ def get_data(add, tags, radius=500):
     gdf = ox.geometries_from_address(add, tags, radius)
     fp_proj = ox.project_gdf(gdf).reset_index()
     fp_proj = fp_proj[fp_proj["element_type"] == "way"]
+    use_cols = ["osmid", "geometry", "building", 'building:levels','addr:street']
     if 'building:levels' in fp_proj:
-        fp_poly = fp_proj[["osmid", "geometry", "building", 'building:levels']]
+        fp_poly = fp_proj[use_cols]
     else:
         fp_proj['building:levels'] = None #[ random.randint(1,2) for k in fp_proj.index]
-        fp_poly = fp_proj[["osmid", "geometry", "building", 'building:levels']]
+        fp_poly = fp_proj[use_cols]
     fp_poly["area"] = fp_poly.area
     # exclude all small footprints !!!
     fp_poly = fp_poly[fp_poly["area"] > 50]
-    # levels numeric
+    # levels to numeric
+    if 'building:levels' not in gdf.columns:
+        gdf['building:levels'] = None
     fp_poly["building:levels"] = pd.to_numeric(fp_poly["building:levels"], errors='coerce', downcast='float')
-    # check tessellation input & filter bad ones
-    check = momepy.CheckTessellationInput(fp_poly)
-    l1 = check.collapse['osmid'].tolist()
-    l2 = check.split['osmid'].tolist()
-    l3 = check.overlap['osmid'].tolist()
-    filterlist = l1 + l2 + l3
-    filtered_series = ~fp_poly.osmid.isin(filterlist)
-    filtered_out = fp_poly[filtered_series]
-    return filtered_out # projected
+    return fp_poly # projected
 
 # USER INPUT -------------------------------------------------------------
 user_input = st.text_input('Type address or place on earth')
@@ -130,8 +126,8 @@ mymap = px.choropleth_mapbox(plot,
                                 title=f'{add} buildings on map',
                                 color="building",
                                 hover_name='building',
-                                hover_data=['building:levels'],
-                                labels={"building": 'Building tags in use'},
+                                hover_data=['building:levels','addr:street'],
+                                labels={"building": 'Building tags in use sorted by count'},
                                 category_orders={"building":tag_order},
                                 mapbox_style=my_style,
                                 color_discrete_sequence=px.colors.qualitative.D3,
@@ -142,8 +138,10 @@ mymap = px.choropleth_mapbox(plot,
                                 height=700
                                 )
 st.plotly_chart(mymap, use_container_width=True)
-flr_rate = round(buildings['building:levels'].isna().sum() / len(buildings.index) * 100,0)
-st.caption(f'Floor number information in {flr_rate}% of buildings. The rest will be estimated using nearby medians.')
+#st.dataframe(plot.drop(columns='geometry'))
+flr_rate = 100 - round(buildings['building:levels'].isna().sum() / len(buildings.index) * 100,0)
+floor_med = buildings['building:levels'].median()
+st.caption(f'Floor number information in {flr_rate}% of buildings with median value of {floor_med}. The rest will be estimated using nearby medians.')
 
 # -------------------------------------------------------------------
 
@@ -151,25 +149,34 @@ st.caption(f'Floor number information in {flr_rate}% of buildings. The rest will
 def osm_densities(buildings):
     # projected crs for momepy calculations
     gdf = buildings.to_crs(3067)
+    # check tessellation input & filter bad ones
+    check = momepy.CheckTessellationInput(gdf)
+    l1 = check.collapse['osmid'].tolist()
+    l2 = check.split['osmid'].tolist()
+    l3 = check.overlap['osmid'].tolist()
+    filterlist = l1 + l2 + l3
+    filtered_series = ~gdf.osmid.isin(filterlist)
+    gdf = gdf[filtered_series]
+    # prepare uIDs
     gdf['uID'] = momepy.unique_id(gdf)
     limit = momepy.buffered_limit(gdf)
     tessellation = momepy.Tessellation(gdf, unique_id='uID', limit=limit).tessellation
-    # replace none floors with nearby medians from 2 degree neighborhoods
     sw = momepy.sw_high(k=2, gdf=tessellation, ids='uID')
-    tessellation = tessellation.merge(gdf[['uID', 'building:levels']])
-    if gdf['building:levels'] is not None:
-        gdf['building:levels'] = round(momepy.AverageCharacter(tessellation, values='building:levels', spatial_weights=sw, unique_id='uID').median, 0)    
+    
     # calculate GSI = ground space index = coverage = CAR = coverage area ratio
     tess_GSI = momepy.AreaRatio(tessellation, gdf,
                                 momepy.Area(tessellation).series,
                                 momepy.Area(gdf).series, 'uID')
     gdf['GSI'] = round(tess_GSI.series,3)
-    # get mean floor num of the neighborhood for possible NaN values
-    gdf['ND_mean_floors'] = round(momepy.AverageCharacter(tessellation, values='building:levels', spatial_weights=sw,unique_id='uID').median,0)
-    gdf['ND_mean_floors'].fillna(1, inplace=True)
+
+    # floor num info:
+    tessellation = tessellation.merge(gdf[['uID', 'building:levels']])
+    # get mean floor num of the neighborhood for NaN values
+    gdf['ND_med_floors'] = round(momepy.AverageCharacter(tessellation, values='building:levels', spatial_weights=sw,unique_id='uID').median,0)
+    gdf['ND_med_floors'].fillna(1, inplace=True)
     # prepare GFAs
     if gdf["building:levels"] is not None:
-        gdf["GFA"] = gdf["area"] * gdf['ND_mean_floors']
+        gdf["GFA"] = gdf["area"] * gdf['ND_med_floors']
     else:
         gdf["GFA"] = gdf["area"] * gdf["building:levels"]
     gdf['GFA'] = round(gdf['GFA'],0)
@@ -224,6 +231,7 @@ tags = buildings['building'].unique().tolist()
 # get most common list of tags in use in area
 top_tags = tag_order[:9] # top 9 
 mytags = st.multiselect('Select tags(building types) to include for density analysis',tags,default=top_tags)
+st.caption('Top-9 tags mostly used as a default selection set. See sorter legend of map')
 my_buildings = buildings.loc[buildings['building'].isin(mytags)]
 
 run = st.checkbox('Autocalculate densities')
@@ -252,7 +260,7 @@ with st.expander(f"Density nomograms for {add}", expanded=True):
                                       x='GSI', y='FSI', color='OSR_class', #size='GFA',
                                       log_y=False,
                                       hover_name='building',
-                                      hover_data=['floors','GFA', 'FSI', 'GSI', 'OSR', 'OSR_ND'],
+                                      hover_data=['addr:street','floors','GFA','OSR','OSR_ND'],
                                       labels={"OSR_class": 'Plot density'},
                                       category_orders={'OSR_class': ['close','dense','compact','spacious','airy','spread']},
                                       color_discrete_map=colormap_osr
@@ -265,7 +273,7 @@ with st.expander(f"Density nomograms for {add}", expanded=True):
                             x='GSI', y='FSI', color='OSR_ND_class', #size='GFA',
                             log_y=False,
                             hover_name='building',
-                            hover_data=['floors','GFA', 'FSI', 'GSI', 'OSR', 'OSR_ND'],
+                            hover_data=['addr:street','floors','GFA','OSR','OSR_ND'],
                             labels={"OSR_ND_class": 'Neigbourhood density'},
                             category_orders={'OSR_ND_class': ['close','dense','compact','spacious','airy','spread']},
                             color_discrete_map=colormap_osr
@@ -295,13 +303,15 @@ with st.expander(f"Density nomograms for {add}", expanded=True):
     st.markdown('---')
     # describe_table
     st.markdown(f'{add} data described')
-    des = case_data.drop(columns=['osmid', 'uID', 'ND_mean_floors']).describe()
+    des = case_data.drop(columns=['osmid', 'uID']).describe()
     st.dataframe(des)
+    #st.dataframe(density_data.drop(columns='geometry'))
 
     # prepare save..
-    density_data.insert(0, 'TimeStamp', pd.to_datetime('now').replace(microsecond=0))
-    density_data['date'] = density_data['TimeStamp'].dt.date
-    save_me = density_data.drop(columns=(['uID', 'TimeStamp','OSR_class','OSR_ND_class'])).assign(location=add).fillna(0)
+    save_data = gpd.overlay(density_data.to_crs(3067), focus_gdf.set_crs(3067), how='intersection').to_crs(4326)
+    save_data.insert(0, 'TimeStamp', pd.to_datetime('now').replace(microsecond=0))
+    save_data['date'] = save_data['TimeStamp'].dt.date
+    save_me = save_data.drop(columns=(['uID', 'TimeStamp','OSR_class','OSR_ND_class'])).assign(location=add)
     save_me = save_me.assign(flr_rate=flr_rate)
     raks = save_me.to_csv().encode('utf-8')
     save = st.download_button(label="Save density data as CSV", data=raks, file_name=f'buildings_{add}.csv',mime='text/csv')
