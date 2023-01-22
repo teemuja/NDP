@@ -76,7 +76,7 @@ eng_feat = {
     'kaup_2016':'Wholesale and retail trade in 2016',
     'pt_2016':'Grocery stores and kiosks in 2016',
     'palv_pien_muutos':'Change in one person companies (OPC) in urban amenities 2000-2016',
-    'palv_muutos':'Cange in Urban amenities (OPC excluded) 2000-2016',
+    'palv_muutos':'Change in Urban amenities (OPC excluded) 2000-2016',
     'kaup_muutos':'Change in wholesale and retail trade 2000-2016',
     'pt_muutos':'Change in Grocery stores and kiosks 2000-2016',
 }
@@ -139,87 +139,57 @@ else:
         st.stop()
 
 # filters..
-col_list = mygdf.drop(columns=['kunta','pno']).columns.to_list()
+col_list_all = mygdf.drop(columns=['kunta','pno']).columns.to_list()
 remove_list = ['Change in Grocery stores and kiosks 2000-2016',
                'Change in wholesale and retail trade 2000-2016',
-               'Cange in Urban amenities (OPC excluded) 2000-2016',
+               'Change in Urban amenities (OPC excluded) 2000-2016',
                'Change in one person companies (OPC) in urban amenities 2000-2016'
                ]
-col_list.remove('Change in Grocery stores and kiosks 2000-2016')
+
+col_list = [i for i in col_list_all if i not in remove_list]
 default_ix = col_list.index('Residential GFA in 2016')
-p1,p2 = st.columns(2)
+p1,p2,p3 = st.columns(3)
 color = p1.selectbox('Filter by feature quantiles (%)', col_list, index=default_ix)
 q_range = p2.slider(' ',0,100,(0,100),10)
+level = p3.slider('..and/or by H3-resolution (H6-H9)',6,9,9,1)
+p3.caption('https://h3geo.org/docs/core-library/restable/')
 mygdf = mygdf.loc[mygdf[f'{color}'].astype(int) > mygdf[f'{color}'].astype(int).quantile(q_range[0]/100)] 
 mygdf = mygdf.loc[mygdf[f'{color}'].astype(int) < mygdf[f'{color}'].astype(int).quantile(q_range[1]/100)]
-mapplace = st.empty()
-l1,l2 = st.columns(2)
-level = l1.slider('H3-resolution in map (H6-H9)',6,9,9,1)
-l1.caption('https://h3geo.org/docs/core-library/restable/')
-# map plot
-if len(mygdf) > 1:
-    plot = mygdf.h3.h3_to_parent_aggregate(level)
+
+# the map
+with st.expander('Filtered data on map', expanded=False):
+    mapplace = st.empty()
     # map plot
-    lat = plot.unary_union.centroid.y
-    lon = plot.unary_union.centroid.x
-    range_min = plot[color].quantile(0.05)
-    range_max = plot[color].quantile(0.95)
-    fig = px.choropleth_mapbox(plot,
-                            geojson=plot.geometry,
-                            locations=plot.index,
-                            color=color,
-                            center={"lat": lat, "lon": lon},
-                            mapbox_style=my_style,
-                            range_color=(range_min, range_max),
-                            color_continuous_scale=px.colors.sequential.Inferno[::-1],
-                            #color_continuous_scale=px.colors.sequential.Blackbody[::-1],
-                            #labels={'palv':'Palveluiden määrä'},
-                            zoom=9,
-                            opacity=0.5,
-                            width=1200,
-                            height=700
-                            )
-    fig.update_layout(margin={"r": 0, "t": 0, "l": 0, "b": 0}, height=700)
-    fig.update_layout(coloraxis_showscale=False)
-    with mapplace:
-        st.plotly_chart(fig, use_container_width=True)
-    
-else:
-    st.stop()
+    if len(mygdf) > 1:
+        plot = mygdf.h3.h3_to_parent_aggregate(level)
+        # map plot
+        lat = plot.unary_union.centroid.y
+        lon = plot.unary_union.centroid.x
+        range_min = plot[color].quantile(0.05)
+        range_max = plot[color].quantile(0.95)
+        fig = px.choropleth_mapbox(plot,
+                                geojson=plot.geometry,
+                                locations=plot.index,
+                                color=color,
+                                center={"lat": lat, "lon": lon},
+                                mapbox_style=my_style,
+                                range_color=(range_min, range_max),
+                                color_continuous_scale=px.colors.sequential.Inferno[::-1],
+                                #color_continuous_scale=px.colors.sequential.Blackbody[::-1],
+                                #labels={'palv':'Palveluiden määrä'},
+                                zoom=10,
+                                opacity=0.5,
+                                width=1200,
+                                height=700
+                                )
+        fig.update_layout(margin={"r": 0, "t": 0, "l": 0, "b": 0}, height=700)
+        fig.update_layout(coloraxis_showscale=False)
+        with mapplace:
+            st.plotly_chart(fig, use_container_width=True)
+        
+    else:
+        st.stop()
 
-# scat plot
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-df = plot.copy()
-trace1 = go.Scatter(
-    x=df['Residential GFA in 2000'],
-    y=df['Grocery stores and kiosks in 2000'],
-    name='2000',
-    mode='markers',
-    marker=dict(
-            color='Brown',
-            size=10)
-)
-trace2 = go.Scatter(
-    x=df['Residential GFA in 2016'],
-    y=df['Grocery stores and kiosks in 2016'],
-    name='2016',
-    yaxis='y2',
-    mode='markers',
-    marker=dict(
-            color='Orange',
-            size=10)
-)
-scat = make_subplots(specs=[[{"secondary_y": True}]],
-                        x_title='Residential GFA in area',y_title='Grocery stores and kiosks in area')
-scat.add_trace(trace1)
-scat.add_trace(trace2,secondary_y=True)
-scat.update_layout(title=f'Number of groceries&kiosks vs residential GFA on resolution {level}')
-
-#scat = px.scatter(plot, x=x, y=y)
-st.plotly_chart(scat, use_container_width=True)
-#st.caption('Note! Missing data in grocery stores 2016 in some shopping malls')
-st.markdown('---')
 
 # corr graphs
 st.subheader('Correlation loss')
@@ -251,7 +221,7 @@ def corr_loss(df,h=10,corr_type='year'):
         x_list=['GFA change 2000-2016',
                 'Residential GFA change 2000-2016']
         y_list=['Change in one person companies (OPC) in urban amenities 2000-2016',
-                'Cange in Urban amenities (OPC excluded) 2000-2016',
+                'Change in Urban amenities (OPC excluded) 2000-2016',
                 'Change in wholesale and retail trade 2000-2016',
                 'Change in Grocery stores and kiosks 2000-2016',]
         
@@ -268,15 +238,7 @@ def corr_loss(df,h=10,corr_type='year'):
     corr_df = pd.concat(frames, axis=1, ignore_index=False)
     return corr_df
 
-# data in use for corr
-if tapa == 'By City':
-    st.caption(f'Data in use: {color} -value quantiles {q_range[0]}-{q_range[1]}% in {kuntani}')
-    graph_title = kuntani
-else:
-    st.caption(f'Data in use: {color} -value quantiles {q_range[0]}-{q_range[1]}% in neighbourhoods {pnos}')
-    graph_title = pnos
-st.caption('Click the legend to select/unselect correlation pairs. Save the graph using camera-icon when howered over.')
-# corrs
+
 # use similar col names for facet plot
 facet_feat = {
     'Total GFA in 2000':'Total GFA',
@@ -308,20 +270,85 @@ facet_col_list_2016 = [
     'Wholesale and retail trade in 2016',
     'Grocery stores and kiosks in 2016'
 ]
+
 corr_2000 = corr_loss(mygdf[facet_col_list_2000].rename(columns=facet_feat),corr_type='year')
 corr_2000['year'] = 2000
 corr_2016 = corr_loss(mygdf[facet_col_list_2016].rename(columns=facet_feat),corr_type='year')
 corr_2016['year'] = 2016
 corrs = corr_2000.append(corr_2016)
 
-fig_corr = px.line(corrs,
-                   labels = {'index':'H3-resolution','value':'Correlation','variable':'Corr pairs'},
+# select feat for corrs
+plot_list = corrs.columns.to_list()[:-1]
+my_plot_list = ['Residential GFA VS Urban amenities (OPC excluded)','Residential GFA VS Grocery stores and kiosks']
+scat_list = st.multiselect('Choose data for scatter plot', plot_list,default=my_plot_list)
+scat_list.extend(['year'])
+corr_plot = corrs[corrs.columns.intersection(scat_list)]
+
+# data in use for corr
+if tapa == 'By City':
+    st.caption(f'Data in use: {color} -value quantiles {q_range[0]}-{q_range[1]}% in {kuntani}')
+    graph_title = kuntani
+else:
+    st.caption(f'Data in use: {color} -value quantiles {q_range[0]}-{q_range[1]}% in neighbourhoods {pnos}')
+    graph_title = pnos
+
+# plot
+fig_corr = px.line(corr_plot,
+                   labels = {'index':'H3-resolution','value':'Correlation','variable':'Correlation pairs'},
                    title=f'Correlation loss in {graph_title}', facet_col='year' )
 fig_corr.update_xaxes(autorange="reversed")#, side='top')
-fig_corr.update_layout(legend=dict(orientation="h",yanchor="bottom",y=-0.5,xanchor="right",x=1))
+fig_corr['layout'].update(shapes=[{'type': 'line','y0':0.5,'y1': 0.5,'x0':str(corr_plot.index[0]), 
+                              'x1':str(corr_plot.index[-1]),'xref':'x1','yref':'y1',
+                              'line': {'color': 'black','width': 0.5,'dash':'dash'}},
+                             {'type': 'line','y0':0.5,'y1': 0.5,'x0':str(corr_plot.index[0]), 
+                              'x1':str(corr_plot.index[-1]),'xref':'x2','yref':'y2',
+                              'line': {'color': 'black','width': 0.5,'dash':'dash'}}])
+fig_corr.update_layout(yaxis_range=[0,1])
+fig_corr.update_layout(legend=dict(orientation="h",yanchor="bottom",y=-0.2,xanchor="left",x=0))
 st.plotly_chart(fig_corr, use_container_width=True)
-        
-with st.expander('Classification', expanded=False):        
+
+with st.expander('Scatter plots', expanded=False):
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    df = plot.copy()
+    # select feat
+    x1,y1 = st.columns(2)
+    xvalue = x1.selectbox('Choose X axis data',['Residential GFA','Total GFA'])
+    yvalue = y1.selectbox('Choose y axis data',['Grocery stores and kiosks',
+                                                'Urban amenities (OPC excluded)',
+                                                'One person companies (OPC) in urban amenities',
+                                                'Wholesale and retail trade'])
+    st.caption('Change H3-resolution for scatter plot using filter selectors')
+    # plots
+    trace1 = go.Scatter(
+        x=df[f'{xvalue} in 2000'],
+        y=df[f'{yvalue} in 2000'],
+        name='2000',
+        mode='markers',
+        marker=dict(
+                color='Brown',
+                size=7)
+    )
+    trace2 = go.Scatter(
+        x=df[f'{xvalue} in 2016'],
+        y=df[f'{yvalue} in 2016'],
+        name='2016',
+        yaxis='y2',
+        mode='markers',
+        marker=dict(
+                color='Orange',
+                size=7)
+    )
+    scat = make_subplots(specs=[[{"secondary_y": True}]],
+                            x_title=f'{xvalue}',y_title=f'{yvalue}')
+    scat.add_trace(trace1)
+    scat.add_trace(trace2,secondary_y=True)
+    scat.update_layout(title=f'Scatter plot on resolution H{level}')
+
+    st.plotly_chart(scat, use_container_width=True)
+    st.markdown('---')
+
+with st.expander('Classification', expanded=False):       
     class_expl = """
     **Urban amenities** are all company business space locations which belong
     to the following finnish TOL-industry classes:  
@@ -340,6 +367,8 @@ with st.expander('Classification', expanded=False):
     Based on this alignment the data paper analyze the “eras” 2000 and 2016.
     """
     st.markdown(class_expl, unsafe_allow_html=True)
+
+
 
 #footer
 st.markdown('---')
