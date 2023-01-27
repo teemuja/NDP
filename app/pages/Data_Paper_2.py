@@ -378,4 +378,4 @@ footer_title = '''
 '''
 st.markdown(footer_title)
 disclamer = 'Data papers are constant work in progress and will be upgraded, changed & fixed for errors while research go on.'
-st.caption('Disclamer: ' + disclamer)
+st.caption('Disclaimer: ' + disclamer)
