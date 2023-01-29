@@ -286,15 +286,15 @@ corrs = corr_2000.append(corr_2016)
 # select feat for corrs
 plot_list = corrs.columns.to_list()[:-1]
 my_plot_list = ['Residential GFA VS Urban amenities (OPC excluded)',
-                'Total GFA VS Urban amenities (OPC excluded)',
                 'Residential GFA VS Consumer daily goods and kiosks',
-                'Total GFA VS Consumer daily goods and kiosks',
-                'Residential GFA VS Retail trade',
-                'Total GFA VS Retail trade'
+                'Residential GFA VS Retail trade'
                 ]
-scat_list = st.multiselect('Choose data for scatter plot', plot_list,default=my_plot_list)
-scat_list.extend(['year'])
-corr_plot = corrs[corrs.columns.intersection(scat_list)]
+scat_list = st.multiselect('Choose data for the correlation plot', plot_list,default=my_plot_list)
+if len(scat_list) > 0:
+    scat_list.extend(['year'])
+    corr_plot = corrs[corrs.columns.intersection(scat_list)]
+else:
+    st.stop()
 
 # data in use for corr
 if tapa == 'By City':
