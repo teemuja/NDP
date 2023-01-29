@@ -80,25 +80,21 @@ eng_feat = {
     'askem_2000':'Residential GFA in 2000',
     'kem_2016':'Total GFA in 2016',
     'askem_2016':'Residential GFA in 2016',
-    'kem_muutos':'GFA change 2000-2016',
-    'askem_muutos':'Residential GFA change 2000-2016',
     'palv_pien_2000':'One person companies (OPC) in urban amenities in 2000',
-    'palv_2000':'Urban amenities (OPC excluded) in 2000',
+    'palv_suur_2000':'Urban amenities (OPC excluded) in 2000',
     'kaup_2000':'Wholesale and retail trade in 2000',
-    'pt_2000':'Grocery stores and kiosks in 2000',
+    'pt_sup_2000':'Consumer daily goods and kiosks in 2000',
+    'pt_laaja_2000':'Retail trade in 2000',
     'palv_pien_2016':'One person companies (OPC) in urban amenities in 2016',
-    'palv_2016':'Urban amenities (OPC excluded) in 2016',
+    'palv_suur_2016':'Urban amenities (OPC excluded) in 2016',
     'kaup_2016':'Wholesale and retail trade in 2016',
-    'pt_2016':'Grocery stores and kiosks in 2016',
-    'palv_pien_muutos':'Change in one person companies (OPC) in urban amenities 2000-2016',
-    'palv_muutos':'Change in Urban amenities (OPC excluded) 2000-2016',
-    'kaup_muutos':'Change in wholesale and retail trade 2000-2016',
-    'pt_muutos':'Change in Grocery stores and kiosks 2000-2016',
+    'pt_sup_2016':'Consumer daily goods and kiosks in 2016',
+    'pt_laaja_2016':'Retail trade in 2016'
 }
 
 @st.experimental_memo()
 def load_data():
-    path = Path(__file__).parent / 'data/h3_10_PKS.csv'
+    path = Path(__file__).parent / 'data/h3_10_PKS_kem2_VS_palv.csv'
     with path.open() as f:
         data = pd.read_csv(f, index_col='h3_10', header=0)#.astype(str)
     # translate columns
@@ -155,18 +151,11 @@ else:
 
 # filters..
 col_list_all = mygdf.drop(columns=['kunta','pno']).columns.to_list()
-remove_list = ['Grocery stores and kiosks in 2000',
-               'Grocery stores and kiosks in 2016',
-               'Change in Grocery stores and kiosks 2000-2016',
-               'Change in wholesale and retail trade 2000-2016',
-               'Change in Urban amenities (OPC excluded) 2000-2016',
-               'Change in one person companies (OPC) in urban amenities 2000-2016'
-               ]
-
-col_list = [i for i in col_list_all if i not in remove_list]
-default_ix = col_list.index('Residential GFA in 2016')
+# removelist = if needed
+#col_list = [i for i in col_list_all if i not in remove_list]
+default_ix = col_list_all.index('Residential GFA in 2016')
 p1,p2,p3 = st.columns(3)
-color = p1.selectbox('Filter by feature quantiles (%)', col_list, index=default_ix)
+color = p1.selectbox('Filter by feature quantiles (%)', col_list_all, index=default_ix)
 q_range = p2.slider(' ',0,100,(0,100),10)
 level = p3.slider('..and/or by H3-resolution (H6-H9)',6,9,9,1)
 p3.caption('https://h3geo.org/docs/core-library/restable/')
@@ -218,30 +207,26 @@ def corr_loss(df,h=10,corr_type='year'):
                 'Residential GFA in 2000']
         y_list=['One person companies (OPC) in urban amenities in 2000',
                 'Urban amenities (OPC excluded) in 2000',
-                'Wholesale and retail trade in 2000']
-                #'Grocery stores and kiosks in 2000']
+                'Wholesale and retail trade in 2000',
+                'Consumer daily goods and kiosks in 2000',
+                'Retail trade in 2000']
     elif corr_type == '2016':
         x_list=['Total GFA in 2016',
                 'Residential GFA in 2016']
         y_list=['One person companies (OPC) in urban amenities in 2016',
                 'Urban amenities (OPC excluded) in 2016',
-                'Wholesale and retail trade in 2016']
-                #'Grocery stores and kiosks in 2016']
+                'Consumer daily goods and kiosks in 2016',
+                'Retail trade in 2016']
     elif corr_type == 'year':
         x_list=['Total GFA',
                 'Residential GFA']
         y_list=['One person companies (OPC) in urban amenities',
                 'Urban amenities (OPC excluded)',
-                'Wholesale and retail trade']
-                #'Grocery stores and kiosks']
-    elif corr_type == 'change':
-        x_list=['GFA change 2000-2016',
-                'Residential GFA change 2000-2016']
-        y_list=['Change in one person companies (OPC) in urban amenities 2000-2016',
-                'Change in Urban amenities (OPC excluded) 2000-2016',
-                'Change in wholesale and retail trade 2000-2016']
-                #'Change in Grocery stores and kiosks 2000-2016',]
-        
+                'Wholesale and retail trade',
+                'Consumer daily goods and kiosks',
+                'Retail trade']
+
+    # prepare corrs    
     frames = []
     for x in x_list:
         for y in y_list:
@@ -268,8 +253,10 @@ facet_feat = {
     'Urban amenities (OPC excluded) in 2016':'Urban amenities (OPC excluded)',
     'Wholesale and retail trade in 2000':'Wholesale and retail trade',
     'Wholesale and retail trade in 2016':'Wholesale and retail trade',
-    #'Grocery stores and kiosks in 2000':'Grocery stores and kiosks',
-    #'Grocery stores and kiosks in 2016':'Grocery stores and kiosks',
+    'Consumer daily goods and kiosks in 2000':'Consumer daily goods and kiosks',
+    'Consumer daily goods and kiosks in 2016':'Consumer daily goods and kiosks',
+    'Retail trade in 2000':'Retail trade',
+    'Retail trade in 2016':'Retail trade'
 }
 facet_col_list_2000 = [
     'Total GFA in 2000',
@@ -277,7 +264,8 @@ facet_col_list_2000 = [
     'One person companies (OPC) in urban amenities in 2000',
     'Urban amenities (OPC excluded) in 2000',
     'Wholesale and retail trade in 2000',
-    #'Grocery stores and kiosks in 2000'
+    'Consumer daily goods and kiosks in 2000',
+    'Retail trade in 2000'
 ]
 facet_col_list_2016 = [
     'Total GFA in 2016',
@@ -285,7 +273,8 @@ facet_col_list_2016 = [
     'One person companies (OPC) in urban amenities in 2016',
     'Urban amenities (OPC excluded) in 2016',
     'Wholesale and retail trade in 2016',
-    #'Grocery stores and kiosks in 2016'
+    'Consumer daily goods and kiosks in 2016',
+    'Retail trade in 2016'
 ]
 
 corr_2000 = corr_loss(mygdf[facet_col_list_2000].rename(columns=facet_feat),corr_type='year')
@@ -297,7 +286,12 @@ corrs = corr_2000.append(corr_2016)
 # select feat for corrs
 plot_list = corrs.columns.to_list()[:-1]
 my_plot_list = ['Residential GFA VS Urban amenities (OPC excluded)',
-                'Total GFA VS Urban amenities (OPC excluded)']
+                'Total GFA VS Urban amenities (OPC excluded)',
+                'Residential GFA VS Consumer daily goods and kiosks',
+                'Total GFA VS Consumer daily goods and kiosks',
+                'Residential GFA VS Retail trade',
+                'Total GFA VS Retail trade'
+                ]
 scat_list = st.multiselect('Choose data for scatter plot', plot_list,default=my_plot_list)
 scat_list.extend(['year'])
 corr_plot = corrs[corrs.columns.intersection(scat_list)]
@@ -322,7 +316,7 @@ fig_corr['layout'].update(shapes=[{'type': 'line','y0':0.5,'y1': 0.5,'x0':str(co
                               'x1':str(corr_plot.index[-1]),'xref':'x2','yref':'y2',
                               'line': {'color': 'black','width': 0.5,'dash':'dash'}}])
 fig_corr.update_layout(yaxis_range=[0,1])
-fig_corr.update_layout(legend=dict(orientation="h",yanchor="bottom",y=-0.2,xanchor="left",x=0))
+#fig_corr.update_layout(legend=dict(orientation="h",yanchor="bottom",y=-0.2,xanchor="left",x=0))
 st.plotly_chart(fig_corr, use_container_width=True)
 
 with st.expander('Scatter plots', expanded=False):
@@ -334,6 +328,8 @@ with st.expander('Scatter plots', expanded=False):
     xvalue = x1.selectbox('Choose X axis data',['Residential GFA','Total GFA'])
     yvalue = y1.selectbox('Choose y axis data',['Urban amenities (OPC excluded)',
                                                 'One person companies (OPC) in urban amenities',
+                                                'Consumer daily goods and kiosks',
+                                                'Retail trade',
                                                 'Wholesale and retail trade'])
     st.caption('Change H3-resolution for scatter plot using filter selectors')
     # plots
@@ -360,18 +356,20 @@ with st.expander('Scatter plots', expanded=False):
                             x_title=f'{xvalue}',y_title=f'{yvalue}')
     scat.add_trace(trace1)
     scat.add_trace(trace2,secondary_y=True)
-    scat.update_layout(title=f'Scatter plot on resolution H{level}')
+    if 'kuntani' not in globals():
+        kuntani = 'selected neighborhoods'
+    scat.update_layout(title=f'Scatter plot on resolution H{level} in {kuntani}')
 
     st.plotly_chart(scat, use_container_width=True)
 
     #check
     yvalue_2000sum = df[f'{yvalue} in 2000'].sum()
     yvalue_2016sum = df[f'{yvalue} in 2016'].sum()
-    yvalue_2000med = df[f'{yvalue} in 2000'].quantile(0.75)
-    yvalue_2016med = df[f'{yvalue} in 2016'].quantile(0.75)
+    yvalue_2000max = df[f'{yvalue} in 2000'].max() #.quantile(0.9)
+    yvalue_2016max = df[f'{yvalue} in 2016'].max() #.quantile(0.9)
     m1,m2 = st.columns(2)
-    m1.metric(label=f"Sum of {yvalue} in 2000", value=f"{yvalue_2000sum}", delta=f"top quart: {yvalue_2000med}")
-    m2.metric(label=f"Sum of {yvalue} in 2016", value=f"{yvalue_2016sum}", delta=f"top quart: {yvalue_2016med}")
+    m1.metric(label=f"Sum of {yvalue} in 2000", value=f"{yvalue_2000sum}", delta=f"max_H{level}: {yvalue_2000max}")
+    m2.metric(label=f"Sum of {yvalue} in 2016", value=f"{yvalue_2016sum}", delta=f"max_H{level}: {yvalue_2016max}")
     st.markdown('---')
 
 with st.expander('Classification', expanded=False):       
