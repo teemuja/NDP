@@ -6,6 +6,7 @@ import streamlit as st
 import shapely.speedups
 shapely.speedups.enable()
 import plotly.express as px
+import plotly.graph_objs as go
 px.set_mapbox_access_token(st.secrets['MAPBOX_TOKEN'])
 my_style = st.secrets['MAPBOX_STYLE']
 from pathlib import Path
@@ -68,7 +69,7 @@ ingress = '''
 <p style="font-family:sans-serif; color:Black; font-size: 14px;">
 This data paper visualise the change in correlation between urban density and urban amenities.
 Research quest here is to see how an often used argument of positive density impact on local amenities in
-urban planning works in different geographical scales. The research method is Pearson correlation calculations between
+urban planning works in different geographical scales. The research method is Spearman (for non-gaussian distributions) correlation calculations between
 gross floor area (GFA) and urban amenities in different scales.
 </p>
 '''
@@ -233,7 +234,7 @@ def corr_loss(df,h=10,corr_type='year'):
             corr_list = []
             for i in range(1,5):
                 df_i = df.h3.h3_to_parent_aggregate(h-i,return_geometry=False)
-                corr_i = df_i.corr()[x][y]
+                corr_i = df_i.corr(method='spearman')[x][y]
                 corr_list.append(corr_i)
             corr_y = pd.DataFrame(corr_list, index=['h9','h8','h7','h6'], columns=[x+' VS '+y])
             frames.append(corr_y)
@@ -371,6 +372,21 @@ with st.expander('Scatter plots', expanded=False):
     m1.metric(label=f"Sum of {yvalue} in 2000", value=f"{yvalue_2000sum}", delta=f"max_H{level}: {yvalue_2000max}")
     m2.metric(label=f"Sum of {yvalue} in 2016", value=f"{yvalue_2016sum}", delta=f"max_H{level}: {yvalue_2016max}")
     st.markdown('---')
+
+    # histogram for data in current resollution level
+    df_ = df[(df.T != 0).any()]
+    #x2000 = go.Histogram(x=df_[f'{xvalue} in 2000'],opacity=0.75,name=f'{xvalue} in 2000')
+    #x2016 = go.Histogram(x=df_[f'{xvalue} in 2016'],opacity=0.75,name=f'{xvalue} in 2016')
+    y2000 = go.Histogram(x=df_[f'{yvalue} in 2000'],opacity=0.75,name=f'{yvalue} in 2000')
+    y2016 = go.Histogram(x=df_[f'{yvalue} in 2016'],opacity=0.75,name=f'{yvalue} in 2016')
+    #traces_x = [x2000,x2016]
+    traces_y = [y2000,y2016]
+    layout = go.Layout(title='Histograms',barmode='overlay')
+    #fig_x = go.Figure(data=traces_x, layout=layout)
+    fig_y = go.Figure(data=traces_y, layout=layout).update_yaxes(range=[0, 200])
+    #fig_hist = px.histogram(traces, x=yvalue, color='year')
+    #m1.plotly_chart(fig_x, use_container_width=True)
+    st.plotly_chart(fig_y, use_container_width=True)
 
 with st.expander('Classification', expanded=False):       
     class_expl = """
