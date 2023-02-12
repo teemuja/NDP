@@ -69,7 +69,7 @@ st.markdown("Density measurements using Open Street Map data")
 st.markdown("###")
 st.title(':point_down:')
 
-@st.experimental_memo(ttl=900, max_entries=5)
+@st.cache_data(ttl=900, max_entries=5)
 def get_data(add, tags, radius=500):
     gdf = ox.geometries_from_address(add, tags, radius)
     fp_proj = ox.project_gdf(gdf).reset_index()
@@ -145,8 +145,8 @@ st.caption(f'Floor number information in {flr_rate}% of buildings with median va
 
 # -------------------------------------------------------------------
 
-@st.cache(allow_output_mutation=True,ttl=120)
-def osm_densities(buildings):
+@st.cache_data(ttl=120)
+def osm_densities(_buildings):
     # projected crs for momepy calculations
     gdf = buildings.to_crs(3067)
     # check tessellation input & filter bad ones

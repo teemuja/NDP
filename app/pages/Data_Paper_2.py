@@ -2,6 +2,7 @@
 import pandas as pd
 import geopandas as gpd
 import numpy as np
+from scipy.stats import boxcox
 import streamlit as st
 import shapely.speedups
 shapely.speedups.enable()
@@ -69,8 +70,7 @@ ingress = '''
 <p style="font-family:sans-serif; color:Black; font-size: 14px;">
 This data paper visualise the change in correlation between urban density and urban amenities.
 Research quest here is to see how an often used argument of positive density impact on local amenities in
-urban planning works in different geographical scales. The research method is Spearman (for non-gaussian distributions) correlation calculations between
-gross floor area (GFA) and urban amenities in different scales.
+urban planning works in different geographical scales.
 </p>
 '''
 st.markdown(ingress, unsafe_allow_html=True)
@@ -93,7 +93,7 @@ eng_feat = {
     'pt_laaja_2016':'Retail trade in 2016'
 }
 
-@st.experimental_memo()
+@st.cache_data()
 def load_data():
     path = Path(__file__).parent / 'data/h3_10_PKS_kem2_VS_palv.csv'
     with path.open() as f:
@@ -201,8 +201,8 @@ with st.expander('Filtered data on map', expanded=False):
 # corr graphs
 st.subheader('Correlation loss')
 
-@st.cache(allow_output_mutation=True)
-def corr_loss(df,h=10,corr_type='year'):
+@st.cache_data()
+def corr_loss(df,h=10,corr_type='year',method='pearson'):
     if corr_type == '2000':
         x_list=['Total GFA in 2000',
                 'Residential GFA in 2000']
@@ -234,7 +234,14 @@ def corr_loss(df,h=10,corr_type='year'):
             corr_list = []
             for i in range(1,5):
                 df_i = df.h3.h3_to_parent_aggregate(h-i,return_geometry=False)
-                corr_i = df_i.corr(method='spearman')[x][y]
+                # apply box cox transform to values..
+                if method == 'pearson':
+                    # use only positive values as boxcox applied..
+                    df_i = df_i[(df_i[df_i.columns] > 0).all(axis=1)]
+                    df_i[x] = boxcox(df_i[x])[0] #boxcox return two: transformed data and lambda value
+                    df_i[y] = boxcox(df_i[y])[0]
+                # use as transformed
+                corr_i = df_i.corr(method=method)[x][y]
                 corr_list.append(corr_i)
             corr_y = pd.DataFrame(corr_list, index=['h9','h8','h7','h6'], columns=[x+' VS '+y])
             frames.append(corr_y)
@@ -278,9 +285,10 @@ facet_col_list_2016 = [
     'Retail trade in 2016'
 ]
 
-corr_2000 = corr_loss(mygdf[facet_col_list_2000].rename(columns=facet_feat),corr_type='year')
+my_method = st.radio('Correlation method',('pearson','spearman'))
+corr_2000 = corr_loss(mygdf[facet_col_list_2000].rename(columns=facet_feat),corr_type='year',method=my_method)
 corr_2000['year'] = 2000
-corr_2016 = corr_loss(mygdf[facet_col_list_2016].rename(columns=facet_feat),corr_type='year')
+corr_2016 = corr_loss(mygdf[facet_col_list_2016].rename(columns=facet_feat),corr_type='year',method=my_method)
 corr_2016['year'] = 2016
 corrs = corr_2000.append(corr_2016)
 
@@ -320,7 +328,7 @@ fig_corr.update_layout(yaxis_range=[0,1])
 #fig_corr.update_layout(legend=dict(orientation="h",yanchor="bottom",y=-0.2,xanchor="left",x=0))
 st.plotly_chart(fig_corr, use_container_width=True)
 
-with st.expander('Scatter plots', expanded=False):
+with st.expander('Statistical checks', expanded=False):
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
     df = plot.copy()
@@ -374,7 +382,7 @@ with st.expander('Scatter plots', expanded=False):
     st.markdown('---')
 
     # histogram for data in current resollution level
-    df_ = df[(df.T != 0).any()]
+    df_ = df[(df.T != 0).any()].drop(columns='geometry')
     #x2000 = go.Histogram(x=df_[f'{xvalue} in 2000'],opacity=0.75,name=f'{xvalue} in 2000')
     #x2016 = go.Histogram(x=df_[f'{xvalue} in 2016'],opacity=0.75,name=f'{xvalue} in 2016')
     y2000 = go.Histogram(x=df_[f'{yvalue} in 2000'],opacity=0.75,name=f'{yvalue} in 2000')
@@ -387,6 +395,20 @@ with st.expander('Scatter plots', expanded=False):
     #fig_hist = px.histogram(traces, x=yvalue, color='year')
     #m1.plotly_chart(fig_x, use_container_width=True)
     st.plotly_chart(fig_y, use_container_width=True)
+    
+    # plot box cox histogram version..
+    if my_method == 'pearson':
+        df_box = df_[(df_[df_.columns] > 0).all(axis=1)]
+        df_box[f'{yvalue} in 2000'] = boxcox(df_box[f'{yvalue} in 2000'])[0]
+        df_box[f'{yvalue} in 2016'] = boxcox(df_box[f'{yvalue} in 2016'])[0]
+        y2000b = go.Histogram(x=df_box[f'{yvalue} in 2000'],opacity=0.75,name=f'{yvalue} in 2000')
+        y2016b = go.Histogram(x=df_box[f'{yvalue} in 2016'],opacity=0.75,name=f'{yvalue} in 2016')
+        layout_b = go.Layout(title='Box Cox transformed histograms',barmode='overlay')
+        traces_y_box = [y2000b,y2016b]
+        fig_y_box = go.Figure(data=traces_y_box, layout=layout_b) #.update_yaxes(range=[0, 200])
+        st.plotly_chart(fig_y_box, use_container_width=True)
+        st.caption('Box Cox power tranformation is applied to data for Pearson correlation approach.')
+
 
 with st.expander('Classification', expanded=False):       
     class_expl = """

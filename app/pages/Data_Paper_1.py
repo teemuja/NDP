@@ -73,7 +73,7 @@ This data paper studies the change in GFA and plan unit sizes in post-war detail
 st.markdown(ingress, unsafe_allow_html=True)
 
 # get the data
-@st.experimental_memo()
+@st.cache_data()
 def load_data():
     path = Path(__file__).parent / 'data/hki_ak_data_202210.csv'
     with path.open() as f:
