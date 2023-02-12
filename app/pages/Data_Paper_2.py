@@ -133,12 +133,14 @@ s1,s2 = st.columns(2)
 pnolista = gdf['pno'].unique()
 tapa = s1.selectbox('Select...',['By City','By Neighbourhood'])
 if tapa == 'By City':
-    kuntani = s2.selectbox(' ',['Helsinki','Espoo','Vantaa','Helsinki centre','Helsinki suburbs'])
+    kuntani = s2.selectbox(' ',['Helsinki','Espoo','Vantaa','Helsinki centre','Helsinki suburbs','All'])
     if kuntani == 'Helsinki centre':
         mygdf = gdf.loc[gdf.pno.isin(centre_pnos)]
     elif kuntani == 'Helsinki suburbs':
         mygdf = gdf.loc[gdf.kunta == 'Helsinki']
         mygdf = mygdf.loc[~mygdf.pno.isin(centre_pnos)]
+    elif kuntani == 'All':
+        mygdf = gdf.copy()
     else:
         mygdf = gdf.loc[gdf.kunta == kuntani]
 else:
@@ -238,8 +240,8 @@ def corr_loss(df,h=10,corr_type='year',method='pearson'):
                 if method == 'pearson':
                     # use only positive values as boxcox applied..
                     df_i = df_i[(df_i[df_i.columns] > 0).all(axis=1)]
-                    df_i[x] = boxcox(df_i[x])[0] #boxcox return two: transformed data and lambda value
-                    df_i[y] = boxcox(df_i[y])[0]
+                    df_i[x] = boxcox(df_i[x],lmbda=0)#[0] #boxcox return two: transformed data and lambda value
+                    df_i[y] = boxcox(df_i[y],lmbda=0)#[0]
                 # use as transformed
                 corr_i = df_i.corr(method=method)[x][y]
                 corr_list.append(corr_i)
@@ -285,7 +287,7 @@ facet_col_list_2016 = [
     'Retail trade in 2016'
 ]
 
-my_method = st.radio('Correlation method',('pearson','spearman'))
+my_method = 'pearson' #st.radio('Correlation method',('pearson','spearman'))
 corr_2000 = corr_loss(mygdf[facet_col_list_2000].rename(columns=facet_feat),corr_type='year',method=my_method)
 corr_2000['year'] = 2000
 corr_2016 = corr_loss(mygdf[facet_col_list_2016].rename(columns=facet_feat),corr_type='year',method=my_method)
@@ -399,15 +401,17 @@ with st.expander('Statistical checks', expanded=False):
     # plot box cox histogram version..
     if my_method == 'pearson':
         df_box = df_[(df_[df_.columns] > 0).all(axis=1)]
-        df_box[f'{yvalue} in 2000'] = boxcox(df_box[f'{yvalue} in 2000'])[0]
-        df_box[f'{yvalue} in 2016'] = boxcox(df_box[f'{yvalue} in 2016'])[0]
-        y2000b = go.Histogram(x=df_box[f'{yvalue} in 2000'],opacity=0.75,name=f'{yvalue} in 2000')
-        y2016b = go.Histogram(x=df_box[f'{yvalue} in 2016'],opacity=0.75,name=f'{yvalue} in 2016')
+        df_box[f'{yvalue} in 2000'],lam2000 = boxcox(df_box[f'{yvalue} in 2000'])
+        df_box[f'{yvalue} in 2016'],lam2016 = boxcox(df_box[f'{yvalue} in 2016'])
+        y2000b = go.Histogram(x=df_box[f'{yvalue} in 2000'],opacity=0.75,name=f'{yvalue} in 2000',nbinsx=20)
+        y2016b = go.Histogram(x=df_box[f'{yvalue} in 2016'],opacity=0.75,name=f'{yvalue} in 2016',nbinsx=20)
         layout_b = go.Layout(title='Box Cox transformed histograms',barmode='overlay')
         traces_y_box = [y2000b,y2016b]
         fig_y_box = go.Figure(data=traces_y_box, layout=layout_b) #.update_yaxes(range=[0, 200])
         st.plotly_chart(fig_y_box, use_container_width=True)
-        st.caption('Box Cox power tranformation is applied to data for Pearson correlation approach.')
+        lam1 = round(lam2000,2)
+        lam2 = round(lam2016,2)
+        st.write(f'Box Cox lambda: 2000={lam1}, 2016={lam2} , Correlation loss graphs are calculated using lambda=0 for each resolution')
 
 
 with st.expander('Classification', expanded=False):       
