@@ -153,21 +153,21 @@ else:
         st.stop()
 
 # filters..
+p1,p2 = st.columns(2)
 col_list_all = mygdf.drop(columns=['kunta','pno']).columns.to_list()
-# removelist = if needed
-#col_list = [i for i in col_list_all if i not in remove_list]
 default_ix = col_list_all.index('Residential GFA in 2016')
-p1,p2,p3 = st.columns(3)
 color = p1.selectbox('Filter by feature quantiles (%)', col_list_all, index=default_ix)
 q_range = p2.slider(' ',0,100,(0,100),10)
-level = p3.slider('..and/or by H3-resolution (H6-H9)',6,9,9,1)
-p3.caption('https://h3geo.org/docs/core-library/restable/')
+# filter accordingly..
 mygdf = mygdf.loc[mygdf[f'{color}'].astype(int) > mygdf[f'{color}'].astype(int).quantile(q_range[0]/100)] 
 mygdf = mygdf.loc[mygdf[f'{color}'].astype(int) < mygdf[f'{color}'].astype(int).quantile(q_range[1]/100)]
 
-# the map
-with st.expander('Filtered data on map', expanded=False):
+# the checks
+with st.expander('Data validation', expanded=False):
+    st.subheader('Filtered data on map')
     mapplace = st.empty()
+    level = st.slider('Change H3-resolution (H6-H9) for validation checks',6,9,9,1)
+    st.caption('https://h3geo.org/docs/core-library/restable/')
     # map plot
     if len(mygdf) > 1:
         plot = mygdf.h3.h3_to_parent_aggregate(level)
@@ -179,6 +179,7 @@ with st.expander('Filtered data on map', expanded=False):
         fig = px.choropleth_mapbox(plot,
                                 geojson=plot.geometry,
                                 locations=plot.index,
+                                #title='Filtered data on map',
                                 color=color,
                                 center={"lat": lat, "lon": lon},
                                 mapbox_style=my_style,
@@ -195,10 +196,109 @@ with st.expander('Filtered data on map', expanded=False):
         fig.update_layout(coloraxis_showscale=False)
         with mapplace:
             st.plotly_chart(fig, use_container_width=True)
-        
     else:
         st.stop()
+    
+    st.markdown('---')
+    st.subheader('Sample checks')
+    # stat checks here
+    my_method = 'pearson' #st.radio('Correlation method',('pearson','spearman'))
+#with st.expander('Statistical checks', expanded=False):
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    df = plot.copy()
+    # select feat
+    x1,y1 = st.columns(2)
+    xvalue = x1.selectbox('Choose X axis data',['Residential GFA','Total GFA'])
+    yvalue = y1.selectbox('Choose y axis data',['Urban amenities (OPC excluded)',
+                                                'One person companies (OPC) in urban amenities',
+                                                'Consumer daily goods and kiosks',
+                                                'Retail trade',
+                                                'Wholesale and retail trade'])
+    st.caption('Change H3-resolution for scatter plot using filter selectors')
+    # plots
+    trace1 = go.Scatter(
+        x=df[f'{xvalue} in 2000'],
+        y=df[f'{yvalue} in 2000'],
+        name='2000',
+        mode='markers',
+        marker=dict(
+                color='Brown',
+                size=7)
+    )
+    trace2 = go.Scatter(
+        x=df[f'{xvalue} in 2016'],
+        y=df[f'{yvalue} in 2016'],
+        name='2016',
+        yaxis='y2',
+        mode='markers',
+        marker=dict(
+                color='Orange',
+                size=7)
+    )
+    scat = make_subplots(specs=[[{"secondary_y": True}]],
+                            x_title=f'{xvalue}',y_title=f'{yvalue}')
+    scat.add_trace(trace1)
+    scat.add_trace(trace2,secondary_y=True)
+    if 'kuntani' not in globals():
+        kuntani = 'selected neighborhoods'
+    scat.update_layout(title=f'Scatter plot on resolution H{level} in {kuntani}')
 
+    st.plotly_chart(scat, use_container_width=True)
+
+    #x
+    xvalue_2000sum = df[f'{xvalue} in 2000'].sum()
+    xvalue_2016sum = df[f'{xvalue} in 2016'].sum()
+    xvalue_2000max = df[f'{xvalue} in 2000'].max()
+    xvalue_2016max = df[f'{xvalue} in 2016'].max()
+    #y
+    yvalue_2000sum = df[f'{yvalue} in 2000'].sum()
+    yvalue_2016sum = df[f'{yvalue} in 2016'].sum()
+    yvalue_2000max = df[f'{yvalue} in 2000'].max()
+    yvalue_2016max = df[f'{yvalue} in 2016'].max()
+
+    m1,m2,m3,m4 = st.columns(4)
+    m1.metric(label=f"Sum of {xvalue} in 2000", value=f"{xvalue_2000sum}", delta=f"max_H{level}: {xvalue_2000max}")
+    m2.metric(label=f"Sum of {xvalue} in 2016", value=f"{xvalue_2016sum}", delta=f"max_H{level}: {xvalue_2016max}")
+    m3.metric(label=f"Sum of {yvalue} in 2000", value=f"{yvalue_2000sum}", delta=f"max_H{level}: {yvalue_2000max}")
+    m4.metric(label=f"Sum of {yvalue} in 2016", value=f"{yvalue_2016sum}", delta=f"max_H{level}: {yvalue_2016max}")
+    #
+    count_2000 = df[f'{xvalue} in 2000'].count()
+    count_2016 = df[f'{xvalue} in 2016'].count()
+    m1.metric(label=f"Sample size 2000/2016", value=f"{count_2000}/{count_2016}")
+    #st.markdown('---')
+
+    # histogram for data in current resollution level
+    df_ = df[(df.T != 0).any()].drop(columns='geometry')
+    #x2000 = go.Histogram(x=df_[f'{xvalue} in 2000'],opacity=0.75,name=f'{xvalue} in 2000')
+    #x2016 = go.Histogram(x=df_[f'{xvalue} in 2016'],opacity=0.75,name=f'{xvalue} in 2016')
+    y2000 = go.Histogram(x=df_[f'{yvalue} in 2000'],opacity=0.75,name=f'{yvalue} in 2000')
+    y2016 = go.Histogram(x=df_[f'{yvalue} in 2016'],opacity=0.75,name=f'{yvalue} in 2016')
+    #traces_x = [x2000,x2016]
+    traces_y = [y2000,y2016]
+    layout = go.Layout(title='Histograms',barmode='overlay')
+    #fig_x = go.Figure(data=traces_x, layout=layout)
+    fig_y = go.Figure(data=traces_y, layout=layout).update_yaxes(range=[0, 200])
+    #fig_hist = px.histogram(traces, x=yvalue, color='year')
+    #m1.plotly_chart(fig_x, use_container_width=True)
+    st.plotly_chart(fig_y, use_container_width=True)
+    
+    # plot box cox histogram version..
+    if my_method == 'pearson':
+        try:
+            df_box = df_[(df_[df_.columns] > 0).all(axis=1)]
+            df_box[f'{yvalue} in 2000'],lam2000 = boxcox(df_box[f'{yvalue} in 2000'])
+            df_box[f'{yvalue} in 2016'],lam2016 = boxcox(df_box[f'{yvalue} in 2016'])
+            y2000b = go.Histogram(x=df_box[f'{yvalue} in 2000'],opacity=0.75,name=f'{yvalue} in 2000',nbinsx=20)
+            y2016b = go.Histogram(x=df_box[f'{yvalue} in 2016'],opacity=0.75,name=f'{yvalue} in 2016',nbinsx=20)
+            layout_b = go.Layout(title='Box Cox transformed histograms',barmode='overlay')
+            traces_y_box = [y2000b,y2016b]
+            fig_y_box = go.Figure(data=traces_y_box, layout=layout_b) #.update_yaxes(range=[0, 200])
+            st.plotly_chart(fig_y_box, use_container_width=True)
+            lam1 = round(lam2000,2)
+            lam2 = round(lam2016,2)
+            st.write(f'Box Cox lambda: 2000={lam1}, 2016={lam2} used in data transformation for correlation calculation in resolution H{level}.')
+        except Exception as e: st.warning(e)
 
 # corr graphs
 st.subheader('Correlation loss')
@@ -240,8 +340,8 @@ def corr_loss(df,h=10,corr_type='year',method='pearson'):
                 if method == 'pearson':
                     # use only positive values as boxcox applied..
                     df_i = df_i[(df_i[df_i.columns] > 0).all(axis=1)]
-                    df_i[x] = boxcox(df_i[x],lmbda=0)#[0] #boxcox return two: transformed data and lambda value
-                    df_i[y] = boxcox(df_i[y],lmbda=0)#[0]
+                    df_i[x] = boxcox(df_i[x])[0] #boxcox return two: transformed data and lambda value
+                    df_i[y] = boxcox(df_i[y])[0]
                 # use as transformed
                 corr_i = df_i.corr(method=method)[x][y]
                 corr_list.append(corr_i)
@@ -287,7 +387,6 @@ facet_col_list_2016 = [
     'Retail trade in 2016'
 ]
 
-my_method = 'pearson' #st.radio('Correlation method',('pearson','spearman'))
 corr_2000 = corr_loss(mygdf[facet_col_list_2000].rename(columns=facet_feat),corr_type='year',method=my_method)
 corr_2000['year'] = 2000
 corr_2016 = corr_loss(mygdf[facet_col_list_2016].rename(columns=facet_feat),corr_type='year',method=my_method)
@@ -326,92 +425,9 @@ fig_corr['layout'].update(shapes=[{'type': 'line','y0':0.5,'y1': 0.5,'x0':str(co
                              {'type': 'line','y0':0.5,'y1': 0.5,'x0':str(corr_plot.index[0]), 
                               'x1':str(corr_plot.index[-1]),'xref':'x2','yref':'y2',
                               'line': {'color': 'black','width': 0.5,'dash':'dash'}}])
-fig_corr.update_layout(yaxis_range=[0,1])
+fig_corr.update_layout(yaxis_range=[-1,1])
 #fig_corr.update_layout(legend=dict(orientation="h",yanchor="bottom",y=-0.2,xanchor="left",x=0))
 st.plotly_chart(fig_corr, use_container_width=True)
-
-with st.expander('Statistical checks', expanded=False):
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-    df = plot.copy()
-    # select feat
-    x1,y1 = st.columns(2)
-    xvalue = x1.selectbox('Choose X axis data',['Residential GFA','Total GFA'])
-    yvalue = y1.selectbox('Choose y axis data',['Urban amenities (OPC excluded)',
-                                                'One person companies (OPC) in urban amenities',
-                                                'Consumer daily goods and kiosks',
-                                                'Retail trade',
-                                                'Wholesale and retail trade'])
-    st.caption('Change H3-resolution for scatter plot using filter selectors')
-    # plots
-    trace1 = go.Scatter(
-        x=df[f'{xvalue} in 2000'],
-        y=df[f'{yvalue} in 2000'],
-        name='2000',
-        mode='markers',
-        marker=dict(
-                color='Brown',
-                size=7)
-    )
-    trace2 = go.Scatter(
-        x=df[f'{xvalue} in 2016'],
-        y=df[f'{yvalue} in 2016'],
-        name='2016',
-        yaxis='y2',
-        mode='markers',
-        marker=dict(
-                color='Orange',
-                size=7)
-    )
-    scat = make_subplots(specs=[[{"secondary_y": True}]],
-                            x_title=f'{xvalue}',y_title=f'{yvalue}')
-    scat.add_trace(trace1)
-    scat.add_trace(trace2,secondary_y=True)
-    if 'kuntani' not in globals():
-        kuntani = 'selected neighborhoods'
-    scat.update_layout(title=f'Scatter plot on resolution H{level} in {kuntani}')
-
-    st.plotly_chart(scat, use_container_width=True)
-
-    #check
-    yvalue_2000sum = df[f'{yvalue} in 2000'].sum()
-    yvalue_2016sum = df[f'{yvalue} in 2016'].sum()
-    yvalue_2000max = df[f'{yvalue} in 2000'].max() #.quantile(0.9)
-    yvalue_2016max = df[f'{yvalue} in 2016'].max() #.quantile(0.9)
-    m1,m2 = st.columns(2)
-    m1.metric(label=f"Sum of {yvalue} in 2000", value=f"{yvalue_2000sum}", delta=f"max_H{level}: {yvalue_2000max}")
-    m2.metric(label=f"Sum of {yvalue} in 2016", value=f"{yvalue_2016sum}", delta=f"max_H{level}: {yvalue_2016max}")
-    st.markdown('---')
-
-    # histogram for data in current resollution level
-    df_ = df[(df.T != 0).any()].drop(columns='geometry')
-    #x2000 = go.Histogram(x=df_[f'{xvalue} in 2000'],opacity=0.75,name=f'{xvalue} in 2000')
-    #x2016 = go.Histogram(x=df_[f'{xvalue} in 2016'],opacity=0.75,name=f'{xvalue} in 2016')
-    y2000 = go.Histogram(x=df_[f'{yvalue} in 2000'],opacity=0.75,name=f'{yvalue} in 2000')
-    y2016 = go.Histogram(x=df_[f'{yvalue} in 2016'],opacity=0.75,name=f'{yvalue} in 2016')
-    #traces_x = [x2000,x2016]
-    traces_y = [y2000,y2016]
-    layout = go.Layout(title='Histograms',barmode='overlay')
-    #fig_x = go.Figure(data=traces_x, layout=layout)
-    fig_y = go.Figure(data=traces_y, layout=layout).update_yaxes(range=[0, 200])
-    #fig_hist = px.histogram(traces, x=yvalue, color='year')
-    #m1.plotly_chart(fig_x, use_container_width=True)
-    st.plotly_chart(fig_y, use_container_width=True)
-    
-    # plot box cox histogram version..
-    if my_method == 'pearson':
-        df_box = df_[(df_[df_.columns] > 0).all(axis=1)]
-        df_box[f'{yvalue} in 2000'],lam2000 = boxcox(df_box[f'{yvalue} in 2000'])
-        df_box[f'{yvalue} in 2016'],lam2016 = boxcox(df_box[f'{yvalue} in 2016'])
-        y2000b = go.Histogram(x=df_box[f'{yvalue} in 2000'],opacity=0.75,name=f'{yvalue} in 2000',nbinsx=20)
-        y2016b = go.Histogram(x=df_box[f'{yvalue} in 2016'],opacity=0.75,name=f'{yvalue} in 2016',nbinsx=20)
-        layout_b = go.Layout(title='Box Cox transformed histograms',barmode='overlay')
-        traces_y_box = [y2000b,y2016b]
-        fig_y_box = go.Figure(data=traces_y_box, layout=layout_b) #.update_yaxes(range=[0, 200])
-        st.plotly_chart(fig_y_box, use_container_width=True)
-        lam1 = round(lam2000,2)
-        lam2 = round(lam2016,2)
-        st.write(f'Box Cox lambda: 2000={lam1}, 2016={lam2} , Correlation loss graphs are calculated using lambda=0 for each resolution')
 
 
 with st.expander('Classification', expanded=False):       
@@ -423,6 +439,9 @@ with st.expander('Classification', expanded=False):
     _Information and communication_  
     _Financial and insurance activities_  
     _Other service activities_  
+    **Consumer daily goods and kiosks** refers to the TOL-classes 5211+5212(TOL1995) for 2000 data and 4711+4719 (TOL2008) for 2016 data.  
+    **Retail trade** refers to the retail classes 52 and 47 accordingly.  
+    More info: <a href="https://www.stat.fi/en/luokitukset/toimiala/" target="_blank">Stat.fi</a>
     <p style="font-family:sans-serif; color:grey; font-size: 12px;">
     Original raw data is from
     <a href="https://research.aalto.fi/fi/projects/l%C3%A4hi%C3%B6iden-kehityssuunnat-ja-uudelleenkonseptointi-2020-luvun-segr " target="_blank">Re:Urbia</a>
