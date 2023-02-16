@@ -133,14 +133,14 @@ s1,s2 = st.columns(2)
 pnolista = gdf['pno'].unique()
 tapa = s1.selectbox('Select...',['By City','By Neighbourhood'])
 if tapa == 'By City':
-    kuntani = s2.selectbox(' ',['Helsinki','Espoo','Vantaa','Helsinki centre','Helsinki suburbs','All'])
+    kuntani = s2.selectbox(' ',['Helsinki','Espoo','Vantaa','Helsinki centre','Helsinki suburbs','All suburbs'])
     if kuntani == 'Helsinki centre':
         mygdf = gdf.loc[gdf.pno.isin(centre_pnos)]
     elif kuntani == 'Helsinki suburbs':
         mygdf = gdf.loc[gdf.kunta == 'Helsinki']
         mygdf = mygdf.loc[~mygdf.pno.isin(centre_pnos)]
-    elif kuntani == 'All':
-        mygdf = gdf.copy()
+    elif kuntani == 'All suburbs':
+        mygdf = gdf.loc[~gdf.pno.isin(centre_pnos)]
     else:
         mygdf = gdf.loc[gdf.kunta == kuntani]
 else:
@@ -297,7 +297,7 @@ with st.expander('Data validation', expanded=False):
             st.plotly_chart(fig_y_box, use_container_width=True)
             lam1 = round(lam2000,2)
             lam2 = round(lam2016,2)
-            st.write(f'Box Cox lambda: 2000={lam1}, 2016={lam2} used in data transformation for correlation calculation in resolution H{level}.')
+            st.write(f'Box Cox lambda: 2000={lam1}, 2016={lam2} used in data transformation for Pearson correlation calculation in resolution H{level}.')
         except Exception as e: st.warning(e)
 
 # corr graphs
@@ -391,7 +391,7 @@ corr_2000 = corr_loss(mygdf[facet_col_list_2000].rename(columns=facet_feat),corr
 corr_2000['year'] = 2000
 corr_2016 = corr_loss(mygdf[facet_col_list_2016].rename(columns=facet_feat),corr_type='year',method=my_method)
 corr_2016['year'] = 2016
-corrs = corr_2000.append(corr_2016)
+corrs = pd.concat([corr_2000,corr_2016]) #corr_2000.append(corr_2016)
 
 # select feat for corrs
 plot_list = corrs.columns.to_list()[:-1]
@@ -425,7 +425,7 @@ fig_corr['layout'].update(shapes=[{'type': 'line','y0':0.5,'y1': 0.5,'x0':str(co
                              {'type': 'line','y0':0.5,'y1': 0.5,'x0':str(corr_plot.index[0]), 
                               'x1':str(corr_plot.index[-1]),'xref':'x2','yref':'y2',
                               'line': {'color': 'black','width': 0.5,'dash':'dash'}}])
-fig_corr.update_layout(yaxis_range=[-1,1])
+fig_corr.update_layout(yaxis_range=[-0.2,1])
 #fig_corr.update_layout(legend=dict(orientation="h",yanchor="bottom",y=-0.2,xanchor="left",x=0))
 st.plotly_chart(fig_corr, use_container_width=True)
 
