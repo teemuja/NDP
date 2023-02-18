@@ -297,13 +297,18 @@ with st.expander('Data validation', expanded=False):
             st.plotly_chart(fig_y_box, use_container_width=True)
             lam1 = round(lam2000,2)
             lam2 = round(lam2016,2)
-            st.write(f'Box Cox lambda: 2000={lam1}, 2016={lam2} used in data transformation for Pearson correlation calculation in resolution H{level}.')
+            st.write(f'Box Cox lambda: 2000={lam1}, 2016={lam2} in resolution H{level}.')
+            st.write('**NOTE** Sample of the whole region was used in resolution h6 for each study to avoid  '
+                     'biases of too small samples in h6 large scale resolution.  '
+                     'This way H6 resolution acts as a reference correlation in this data paper.  '
+                     'Correlation loss -graph shows how correlation falls in particular part of the city  '
+                     'when zooming in to the more local level scales.')
         except Exception as e: st.warning(e)
 
 # corr graphs
 st.subheader('Correlation loss')
 
-@st.cache_data()
+
 def corr_loss(df,h=10,corr_type='year',method='pearson'):
     if corr_type == '2000':
         x_list=['Total GFA in 2000',
@@ -387,11 +392,26 @@ facet_col_list_2016 = [
     'Retail trade in 2016'
 ]
 
-corr_2000 = corr_loss(mygdf[facet_col_list_2000].rename(columns=facet_feat),corr_type='year',method=my_method)
-corr_2000['year'] = 2000
-corr_2016 = corr_loss(mygdf[facet_col_list_2016].rename(columns=facet_feat),corr_type='year',method=my_method)
-corr_2016['year'] = 2016
-corrs = pd.concat([corr_2000,corr_2016]) #corr_2000.append(corr_2016)
+# corrs combined
+@st.cache_data()
+def corrs_combine(mygdf):
+    # all subs for H6 reference values for all 
+    allsub = gdf#.loc[~gdf.pno.isin(centre_pnos)]
+    # 2000
+    corr_2000 = corr_loss(mygdf[facet_col_list_2000].rename(columns=facet_feat),corr_type='year',method=my_method)
+    corr_2000_all = corr_loss(allsub[facet_col_list_2000].rename(columns=facet_feat),corr_type='year',method=my_method)
+    corr_2000.loc[corr_2000.index == 'h6', list(corr_2000.columns)] = corr_2000_all[list(corr_2000.columns)]
+    corr_2000['year'] = 2000
+    # 2016
+    corr_2016 = corr_loss(mygdf[facet_col_list_2016].rename(columns=facet_feat),corr_type='year',method=my_method)
+    corr_2016_all = corr_loss(allsub[facet_col_list_2016].rename(columns=facet_feat),corr_type='year',method=my_method)
+    corr_2016.loc[corr_2016.index == 'h6', list(corr_2016.columns)] = corr_2016_all[list(corr_2016.columns)]
+    corr_2016['year'] = 2016
+    # combine
+    corrs_all = pd.concat([corr_2000,corr_2016]) #corr_2000.append(corr_2016)
+    return corrs_all
+
+corrs = corrs_combine(mygdf=mygdf)
 
 # select feat for corrs
 plot_list = corrs.columns.to_list()[:-1]
@@ -425,6 +445,11 @@ fig_corr['layout'].update(shapes=[{'type': 'line','y0':0.5,'y1': 0.5,'x0':str(co
                              {'type': 'line','y0':0.5,'y1': 0.5,'x0':str(corr_plot.index[0]), 
                               'x1':str(corr_plot.index[-1]),'xref':'x2','yref':'y2',
                               'line': {'color': 'black','width': 0.5,'dash':'dash'}}])
+#fig_corr.add_vrect(
+#    x0=corr_plot.index[-2], x1=corr_plot.index[-1],
+#    fillcolor="white", opacity=0.8,
+#    layer="above", line_width=0,
+#)
 fig_corr.update_layout(yaxis_range=[-0.2,1])
 #fig_corr.update_layout(legend=dict(orientation="h",yanchor="bottom",y=-0.2,xanchor="left",x=0))
 st.plotly_chart(fig_corr, use_container_width=True)
