@@ -43,7 +43,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 header = '<p style="font-family:sans-serif; color:grey; font-size: 12px;">\
-        NDP data paper #2 V0.91\
+        NDP data paper #2 V0.92\
         </p>'
 st.markdown(header, unsafe_allow_html=True)
 # plot size setup
@@ -129,35 +129,23 @@ centre_pnos = [
 "Alppila - Vallila"
 ]
 
-s1,s2 = st.columns(2)
-pnolista = gdf['pno'].unique()
-tapa = s1.selectbox('Select...',['By City','By Neighbourhood'])
-if tapa == 'By City':
-    kuntani = s2.selectbox(' ',['Helsinki','Espoo','Vantaa','Helsinki centre','Helsinki suburbs','All suburbs'])
-    if kuntani == 'Helsinki centre':
-        mygdf = gdf.loc[gdf.pno.isin(centre_pnos)]
-    elif kuntani == 'Helsinki suburbs':
-        mygdf = gdf.loc[gdf.kunta == 'Helsinki']
-        mygdf = mygdf.loc[~mygdf.pno.isin(centre_pnos)]
-    elif kuntani == 'All suburbs':
-        mygdf = gdf.loc[~gdf.pno.isin(centre_pnos)]
-    else:
-        mygdf = gdf.loc[gdf.kunta == kuntani]
+s1,s2,s3 = st.columns(3)
+kuntani = s1.selectbox('Select study area',['Helsinki','Espoo','Vantaa','Helsinki centre','Helsinki suburbs','All suburbs'])
+if kuntani == 'Helsinki centre':
+    mygdf = gdf.loc[gdf.pno.isin(centre_pnos)]
+elif kuntani == 'Helsinki suburbs':
+    mygdf = gdf.loc[gdf.kunta == 'Helsinki']
+    mygdf = mygdf.loc[~mygdf.pno.isin(centre_pnos)]
+elif kuntani == 'All suburbs':
+    mygdf = gdf.loc[~gdf.pno.isin(centre_pnos)]
 else:
-    pnos = s2.multiselect(' ', pnolista,
-                            default=['Tapiola','Pohjois-Tapiola','Otaniemi'])
-    if pnos is not None:
-        mygdf = gdf.loc[gdf.pno.isin(pnos)]
-    else:
-        st.warning('Select city or neighbourhoods.')
-        st.stop()
-
+    mygdf = gdf.loc[gdf.kunta == kuntani]
+    
 # filters..
-p1,p2 = st.columns(2)
 col_list_all = mygdf.drop(columns=['kunta','pno']).columns.to_list()
 default_ix = col_list_all.index('Residential GFA in 2016')
-color = p1.selectbox('Filter by feature quantiles (%)', col_list_all, index=default_ix)
-q_range = p2.slider(' ',0,100,(0,100),10)
+color = s2.selectbox('Filter by feature quantiles (%)', col_list_all, index=default_ix)
+q_range = s3.slider(' ',0,100,(0,100),10)
 # filter accordingly..
 mygdf = mygdf.loc[mygdf[f'{color}'].astype(int) > mygdf[f'{color}'].astype(int).quantile(q_range[0]/100)] 
 mygdf = mygdf.loc[mygdf[f'{color}'].astype(int) < mygdf[f'{color}'].astype(int).quantile(q_range[1]/100)]
@@ -427,12 +415,9 @@ else:
     st.stop()
 
 # data in use for corr
-if tapa == 'By City':
-    st.caption(f'Data in use: {color} -value quantiles {q_range[0]}-{q_range[1]}% in {kuntani}')
-    graph_title = kuntani
-else:
-    st.caption(f'Data in use: {color} -value quantiles {q_range[0]}-{q_range[1]}% in neighbourhoods {pnos}')
-    graph_title = pnos
+st.caption(f'Data in use: {color} -value quantiles {q_range[0]}-{q_range[1]}% in {kuntani}')
+graph_title = kuntani
+
 
 # plot
 fig_corr = px.line(corr_plot,
