@@ -97,7 +97,7 @@ def load_data():
 mygdf,center = load_data()
 
 # reso
-c1,c2,c3,c4 = st.columns(4)
+c1,c2,c3 = st.columns(3)
 yrs = {
     '2020':'Type20',
     '2010':'Type10',
@@ -110,8 +110,7 @@ year = c1.selectbox('Zoning year', ['2020','2010','2000','1990',])
 zone = c2.selectbox('Zone',['Tiheä taajama','Harva taajama','Kylät','Pienkylät','Maaseutuasutus'])
 #reso
 reso = c3.slider('Resolution',6,9,9,1)
-#feature
-feat = c4.selectbox('Visualise',['Population','GFA'])
+
 #legend
 keys = {
     'Tiheä taajama':1,
@@ -123,36 +122,55 @@ keys = {
 # filter
 plot = mygdf.loc[mygdf[yrs[year]] == keys[zone]].h3.geo_to_h3_aggregate(reso)
 
-colormap = {
-    1:'darkbrown',
-    2:'brown',
-    3:'darkgoldenrod',
-    4:'goldenrod',
-    5:'gold'
-    }
-# color
-if feat == 'Population':
-    color = f'pop{year[-2:]}'
-    plot = plot.loc[plot[color] > plot[color].quantile(0.1)]
-else:
-    color = f'GFA{year[-2:]}'
-    plot = plot.loc[plot[color] > plot[color].quantile(0.1)]
-
-range_min = plot[color].quantile(0.1)
-range_max = plot[color].quantile(0.9)
-
 # map
 with st.expander('Map', expanded=False):
+    #feature to plot
+    feat = st.radio('Density of',['Population','GFA'], horizontal=True)
+    #calc densities
+    plot = plot.h3.cell_area(unit='m^2')
+    yr_list = ['90','00','10','20']
+    for yr in yr_list:
+        plot[f'den_pop{yr}'] = round(plot[f'pop{yr}'] / (plot['h3_cell_area']/10000),-1)
+        plot[f'den_gfa{yr}'] = round(plot[f'GFA{yr}'] / plot['h3_cell_area'],3)
+        plot[f'class{yr}'] = 'less'
+        if feat == 'Population':
+            #color = f'pop{year[-2:]}'
+            #plot = plot.loc[plot[color] > plot[color].quantile(0.1)]
+            plot.loc[plot[f'den_pop{yr}'] > 1, f'class{yr}'] = 'sprawl'
+            plot.loc[plot[f'den_pop{yr}'] > 10, f'class{yr}'] = 'spacious'
+            plot.loc[plot[f'den_pop{yr}'] > 50, f'class{yr}'] = 'compact'
+            plot.loc[plot[f'den_pop{yr}'] > 70, f'class{yr}'] = 'dense'
+        else:
+            #color = f'GFA{year[-2:]}'
+            #plot = plot.loc[plot[color] > plot[color].quantile(0.1)]
+            plot.loc[plot[f'den_gfa{yr}'] > 0.10, f'class{yr}'] = 'sprawl'
+            plot.loc[plot[f'den_gfa{yr}'] > 0.15, f'class{yr}'] = 'spacious'
+            plot.loc[plot[f'den_gfa{yr}'] > 0.30, f'class{yr}'] = 'compact'
+            plot.loc[plot[f'den_gfa{yr}'] > 0.50, f'class{yr}'] = 'dense'
+
+    colormap = {
+        "dense": "darkgoldenrod",
+        "compact": "darkolivegreen",
+        "spacious": "lightgreen",
+        "sprawl": "lightblue",
+        "less":"lightcyan"
+    }
+    #range_min = plot[color].quantile(0.1)
+    #range_max = plot[color].quantile(0.9)
+
     lat = center[0]
     lon = center[1]
     fig = px.choropleth_mapbox(plot,
                             geojson=plot.geometry,
                             locations=plot.index,
-                            title=f'Zones based on year {year}',
-                            color=color,
-                            #color_discrete_sequence=colormap,
-                            range_color=(range_min, range_max),
-                            color_continuous_scale=px.colors.sequential.Inferno[::-1],
+                            title=f"Zone '{zone}' based on year {year}",
+                            color=f'class{yr}',
+                            hover_data=[f'den_pop{yr}',f'den_gfa{yr}'],
+                            color_discrete_map=colormap,
+                            labels={f'class{yr}': f'Density of {feat}'},
+                            category_orders={f'class{yr}': ['dense','compact','spacious','sprawl']},
+                            #range_color=(range_min, range_max),
+                            #color_continuous_scale=px.colors.sequential.Inferno[::-1],
                             center={"lat": lat, "lon": lon},
                             mapbox_style=my_style,
                             zoom=9,
@@ -161,72 +179,69 @@ with st.expander('Map', expanded=False):
                             height=700
                             )
 
-    fig.update_layout(margin={"r": 0, "t": 0, "l": 0, "b": 0}, height=700)
+    fig.update_layout(margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=700,
+                                legend=dict(
+                                    yanchor="top",
+                                    y=0.97,
+                                    xanchor="left",
+                                    x=0.02
+                                )
+                                )
 
     st.plotly_chart(fig, use_container_width=True)
 
 # map
 with st.expander('Graphs', expanded=True):
-    quant = st.radio('Set quantile to check',[10,25,50,75,90],horizontal=True)
-    plot = plot.h3.cell_area(unit='m^2')
-    yr_list = ['90','00','10','20']
-    for yr in yr_list:
-        plot[f'den_pop{yr}'] = round(plot[f'pop{yr}'] / (plot['h3_cell_area']/10000),-1)
-        plot[f'den_gfa{yr}'] = round(plot[f'GFA{yr}'] / plot['h3_cell_area'],3)
-
-    #growth goes..
-    def growth_df(df,q=0.9):
-        d = {'Year': [1990,2000,2010,2020],
-            'Population':[df['pop90'].quantile(q),df['pop00'].quantile(q),df['pop10'].quantile(q),df['pop20'].quantile(q)],
-            'GFA': [df['GFA90'].quantile(q),df['GFA00'].quantile(q),df['GFA10'].quantile(q),df['GFA20'].quantile(q)],
-            'Density (e)': [plot['den_gfa90'].quantile(q),plot['den_gfa00'].quantile(q),plot['den_gfa10'].quantile(q),plot['den_gfa20'].quantile(q)],
-            'Density (pop)': [plot['den_pop90'].quantile(q),plot['den_pop00'].quantile(q),plot['den_pop10'].quantile(q),plot['den_pop20'].quantile(q)]
-            }
-        dfg = pd.DataFrame(data=d)
-        return dfg
-    
-    dfg = growth_df(plot,q=quant/100)
-    #st.dataframe(dfg)
 
     #growth plot
     import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-    figg = make_subplots(specs=[[{"secondary_y": True}]])
     # Add traces https://plotly.com/python/multiple-axes/#multiple-axes
-    figg.add_trace(
-        go.Scatter(x=dfg['Year'], y=dfg['Population'], name="Population"),
-        secondary_y=False,
-    )
-    figg.add_trace(
-        go.Scatter(x=dfg['Year'], y=dfg['Density (pop)'], name="Density"),
-        secondary_y=True,
-    )
-    figg.update_layout(
-        title_text=f"Growth in the '{zone}' (quantile {quant}%)"
-    )
-    figg.update_xaxes(title_text="Year")
-    figg.update_yaxes(title_text="Population", range=[0,dfg['Population'].max()*1.1], secondary_y=False)
-    figg.update_yaxes(title_text="Density (pop/ha)",range=[0,dfg['Density (pop)'].max()*1.1], secondary_y=True)
-    st.plotly_chart(figg, use_container_width=True)
 
-    def gshare(plot,quant):
-        g90 = round(plot.loc[plot['pop90'] > plot['pop90'].quantile(quant/100)]['pop90'].sum(),-3)
-        g00 = round(plot.loc[plot['pop00'] > plot['pop00'].quantile(quant/100)]['pop00'].sum(),-3)
-        g10 = round(plot.loc[plot['pop10'] > plot['pop10'].quantile(quant/100)]['pop10'].sum(),-3)
-        g20 = round(plot.loc[plot['pop20'] > plot['pop20'].quantile(quant/100)]['pop20'].sum(),-3)
-        d = {
-            'year': ['1990','2000','2010','2020'],
-            'share %': [round(g90/plot['pop90'].sum(),2)*100,
-                      round(g00/plot['pop00'].sum(),2)*100,
-                      round(g10/plot['pop10'].sum(),2)*100,
-                      round(g20/plot['pop20'].sum(),2)*100]
-        }
-        df = pd.DataFrame(data=d)
-        return df
-    g_shares = gshare(plot=plot,quant=quant)
-    st.markdown(f"**Share of total population above the cells of the quantile {quant}% in the zone '{zone}'**")
-    st.dataframe(g_shares.set_index('year').T)
+    # func to generate pop shares by quantiles for each year
+    def qshare(plot):
+        q_list = [90,75,50,25,10]
+        q_dfs = []
+        for q in q_list:
+            g90 = round(plot.loc[plot['pop90'] > plot['pop90'].quantile(q/100)]['pop90'].sum(),0)
+            g00 = round(plot.loc[plot['pop00'] > plot['pop00'].quantile(q/100)]['pop00'].sum(),0)
+            g10 = round(plot.loc[plot['pop10'] > plot['pop10'].quantile(q/100)]['pop10'].sum(),0)
+            g20 = round(plot.loc[plot['pop20'] > plot['pop20'].quantile(q/100)]['pop20'].sum(),0)
+            d = {
+                #'year': ['1990','2000','2010','2020'],
+                f'share_{q}': [round(g90/plot['pop90'].sum(),2)*100,
+                               round(g00/plot['pop00'].sum(),2)*100,
+                               round(g10/plot['pop10'].sum(),2)*100,
+                               round(g20/plot['pop20'].sum(),2)*100]
+            }
+            q_df = pd.DataFrame(data=d, index=['1990','2000','2010','2020'])
+            q_dfs.append(q_df)
 
+        #dfs = [df.set_index('year') for df in q_dfs]
+        df_out = pd.concat(q_dfs, axis=1)
+        return df_out
+    
+    q_shares = qshare(plot=plot)
+
+    def share_plot(df):
+        linecolors = px.colors.qualitative.Plotly
+        fig = go.Figure()
+        fig.add_traces(go.Scatter(x=df.index, y = df['share_90'],name='90%', mode = 'lines', line=dict(color=linecolors[0])))
+        fig.add_traces(go.Scatter(x=df.index, y = df['share_75'],name='75%', mode = 'lines', line=dict(color=linecolors[1])))
+        fig.add_traces(go.Scatter(x=df.index, y = df['share_50'],name='50%', mode = 'lines', line=dict(color=linecolors[2])))
+        fig.add_traces(go.Scatter(x=df.index, y = df['share_25'],name='25%', mode = 'lines', line=dict(color=linecolors[3])))
+        fig.add_traces(go.Scatter(x=df.index, y = df['share_10'],name='10%', mode = 'lines', line=dict(color=linecolors[4])))
+        fig.update_layout(title_text=f"Change of population share in density quantiles in the '{zone}' ")
+        fig.update_xaxes(title='Year')
+        fig.update_yaxes(title='% of total population above quantile')
+        return fig
+    p1,p2 =  st.columns(2)
+    p1.plotly_chart(share_plot(q_shares), use_container_width=True)
+    p2.markdown('###')
+    p2.markdown('###')
+    p2.markdown('###')
+    p2.markdown('###')
+    p2.markdown(f'Shares in resolution H{reso}')
+    p2.dataframe(q_shares.T)
 
 #footer
 st.markdown('---')
