@@ -236,7 +236,7 @@ with st.expander('Graphs', expanded=True):
         fig.add_traces(go.Scatter(x=df.index, y = df['share_50'],name='50%', mode = 'lines', line=dict(color=linecolors[2])))
         fig.add_traces(go.Scatter(x=df.index, y = df['share_25'],name='25%', mode = 'lines', line=dict(color=linecolors[3])))
         fig.add_traces(go.Scatter(x=df.index, y = df['share_10'],name='10%', mode = 'lines', line=dict(color=linecolors[4])))
-        fig.update_layout(title_text=f"Population share in population quantiles")
+        fig.update_layout(title_text=f"Population share in population quantiles (H{reso}).")
         fig.update_xaxes(title='Year')
         fig.update_yaxes(title='% of total population above quantile')
         return fig
@@ -270,7 +270,7 @@ with st.expander('Graphs', expanded=True):
         fig.add_traces(go.Scatter(x=df.index, y = df['share_spacious'],name='spacious', mode = 'lines', line=dict(color=linecolors[2])))
         fig.add_traces(go.Scatter(x=df.index, y = df['share_sprawl'],name='sprawl', mode = 'lines', line=dict(color=linecolors[3])))
         fig.add_traces(go.Scatter(x=df.index, y = df['share_less'],name='less', mode = 'lines', line=dict(color=linecolors[4])))
-        fig.update_layout(title_text=f"Population share by population density classes")
+        fig.update_layout(title_text=f"Population share by population density classes (H{reso}).")
         fig.update_xaxes(title='Year')
         fig.update_yaxes(title='% of total population in class')
         return fig
@@ -283,7 +283,7 @@ with st.expander('Graphs', expanded=True):
         fig.add_traces(go.Scatter(x=df.index, y = df['share_spacious'],name='spacious', mode = 'lines', line=dict(color=linecolors[2])))
         fig.add_traces(go.Scatter(x=df.index, y = df['share_sprawl'],name='sprawl', mode = 'lines', line=dict(color=linecolors[3])))
         fig.add_traces(go.Scatter(x=df.index, y = df['share_less'],name='less', mode = 'lines', line=dict(color=linecolors[4])))
-        fig.update_layout(title_text=f"Population share by GFA density classes")
+        fig.update_layout(title_text=f"Population share by GFA density classes (H{reso}).")
         fig.update_xaxes(title='Year')
         fig.update_yaxes(title='% of total population in class')
         return fig
