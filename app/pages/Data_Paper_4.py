@@ -158,18 +158,20 @@ with st.expander('Map', expanded=False):
     lon = center[1]
     if densityof == 'Population':
         mycolor = f'class_pop{yr}'
+        myclass = 'pop'
     else:
         mycolor = f'class_gfa{yr}'
+        myclass = 'gfa'
 
     fig = px.choropleth_mapbox(plot,
                             geojson=plot.geometry,
                             locations=plot.index,
-                            title=f"Zone '{zone}' based on year {year}",
+                            title=f"Zone '{zone}' based on year {year} in resolution H{reso}.",
                             color=mycolor,
                             hover_data=[f'den_pop{yr}',f'den_gfa{yr}'],
                             color_discrete_map=colormap,
-                            labels={f'class{yr}': f'Density of {densityof}'},
-                            category_orders={f'class{yr}': ['dense','compact','spacious','sprawl']},
+                            labels={f'class_{myclass}{yr}': f'Density of {densityof}'},
+                            category_orders={f'class_{myclass}{yr}': ['dense','compact','spacious','sprawl','less']},
                             #range_color=(range_min, range_max),
                             #color_continuous_scale=px.colors.sequential.Inferno[::-1],
                             center={"lat": lat, "lon": lon},
@@ -194,7 +196,8 @@ with st.expander('Map', expanded=False):
 # map
 with st.expander('Graphs', expanded=True):
 
-    st.subheader(f"Population/GFA shares in density classes in '{zone}' in resolution H{reso}. ")
+    st.subheader(f"Population shares in density classes. ")
+    st.markdown(f"Zone '{zone}' in resolution H{reso}.")
 
     #growth plot
     import plotly.graph_objects as go
@@ -233,7 +236,7 @@ with st.expander('Graphs', expanded=True):
         fig.add_traces(go.Scatter(x=df.index, y = df['share_50'],name='50%', mode = 'lines', line=dict(color=linecolors[2])))
         fig.add_traces(go.Scatter(x=df.index, y = df['share_25'],name='25%', mode = 'lines', line=dict(color=linecolors[3])))
         fig.add_traces(go.Scatter(x=df.index, y = df['share_10'],name='10%', mode = 'lines', line=dict(color=linecolors[4])))
-        fig.update_layout(title_text=f"Change of population share in population quantiles")
+        fig.update_layout(title_text=f"Population share in population quantiles")
         fig.update_xaxes(title='Year')
         fig.update_yaxes(title='% of total population above quantile')
         return fig
@@ -267,7 +270,7 @@ with st.expander('Graphs', expanded=True):
         fig.add_traces(go.Scatter(x=df.index, y = df['share_spacious'],name='spacious', mode = 'lines', line=dict(color=linecolors[2])))
         fig.add_traces(go.Scatter(x=df.index, y = df['share_sprawl'],name='sprawl', mode = 'lines', line=dict(color=linecolors[3])))
         fig.add_traces(go.Scatter(x=df.index, y = df['share_less'],name='less', mode = 'lines', line=dict(color=linecolors[4])))
-        fig.update_layout(title_text=f"Change of population share by Population density classes")
+        fig.update_layout(title_text=f"Population share by population density classes")
         fig.update_xaxes(title='Year')
         fig.update_yaxes(title='% of total population in class')
         return fig
@@ -280,7 +283,7 @@ with st.expander('Graphs', expanded=True):
         fig.add_traces(go.Scatter(x=df.index, y = df['share_spacious'],name='spacious', mode = 'lines', line=dict(color=linecolors[2])))
         fig.add_traces(go.Scatter(x=df.index, y = df['share_sprawl'],name='sprawl', mode = 'lines', line=dict(color=linecolors[3])))
         fig.add_traces(go.Scatter(x=df.index, y = df['share_less'],name='less', mode = 'lines', line=dict(color=linecolors[4])))
-        fig.update_layout(title_text=f"Change of population share by GFA density classes")
+        fig.update_layout(title_text=f"Population share by GFA density classes")
         fig.update_xaxes(title='Year')
         fig.update_yaxes(title='% of total population in class')
         return fig
