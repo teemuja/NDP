@@ -107,10 +107,10 @@ yrs = {
 #year
 year = c1.selectbox('Zoning year', ['2020','2010','2000','1990',])
 #zone
-zone = c2.selectbox('Zone',['Tiheä taajama','Harva taajama','Kylät','Pienkylät','Maaseutuasutus'])
+zone = c2.selectbox('Zone',['Tiheä taajama','Harva taajama','Kylät ja maaseutu'])
 #reso
-reso = c3.slider('Resolution',6,9,9,1)
-
+resoh = c3.radio('Resolution',['H9','H8','H7'], horizontal=True) #['~5km²','~1km²','~1ha']
+reso = int(resoh[-1])
 
 #legend
 keys = {
@@ -121,7 +121,11 @@ keys = {
     'Maaseutuasutus':5
     }
 # filter
-plot = mygdf.loc[mygdf[yrs[year]] == keys[zone]].h3.geo_to_h3_aggregate(reso)
+if zone != 'Kylät ja maaseutu':
+    plot = mygdf.loc[mygdf[yrs[year]] == keys[zone]].h3.geo_to_h3_aggregate(reso)
+else:
+    subzones = ['Kylät','Pienkylät','Maaseutuasutus'] #=[3,4,5]
+    plot = mygdf.loc[mygdf[yrs[year]].isin([3,4,5])].h3.geo_to_h3_aggregate(reso)
 
 # map
 with st.expander('Map', expanded=False):
@@ -193,11 +197,17 @@ with st.expander('Map', expanded=False):
 
     st.plotly_chart(fig, use_container_width=True)
 
+    #st.dataframe(plot.drop(columns='geometry'))
+
 # map
 with st.expander('Graphs', expanded=True):
 
     st.subheader(f"Population shares in density classes. ")
-    st.markdown(f"Zone '{zone}' in resolution H{reso}.")
+    hex_area = round(plot['h3_cell_area'].mean()/10000,1)
+    if hex_area < 100:
+        st.markdown(f'Zone "{zone}" in resolution H{reso} (hexagon area: {hex_area} ha)')
+    else:
+        st.markdown(f'Zone "{zone}" in resolution H{reso} (hexagon area: {round(hex_area/100,1)} km²)')
 
     #growth plot
     import plotly.graph_objects as go
@@ -236,7 +246,7 @@ with st.expander('Graphs', expanded=True):
         fig.add_traces(go.Scatter(x=df.index, y = df['share_50'],name='50%', mode = 'lines', line=dict(color=linecolors[2])))
         fig.add_traces(go.Scatter(x=df.index, y = df['share_25'],name='25%', mode = 'lines', line=dict(color=linecolors[3])))
         fig.add_traces(go.Scatter(x=df.index, y = df['share_10'],name='10%', mode = 'lines', line=dict(color=linecolors[4])))
-        fig.update_layout(title_text=f"Population share in pop.density quantiles (H{reso}).")
+        fig.update_layout(title_text=f"Population share in pop. density quantiles (H{reso}).")
         fig.update_xaxes(title='Year')
         fig.update_yaxes(title='% of total population above quantile')
         return fig
@@ -270,7 +280,7 @@ with st.expander('Graphs', expanded=True):
         fig.add_traces(go.Scatter(x=df.index, y = df['share_spacious'],name='spacious', mode = 'lines', line=dict(color=linecolors[2])))
         fig.add_traces(go.Scatter(x=df.index, y = df['share_sprawl'],name='sprawl', mode = 'lines', line=dict(color=linecolors[3])))
         fig.add_traces(go.Scatter(x=df.index, y = df['share_less'],name='less', mode = 'lines', line=dict(color=linecolors[4])))
-        fig.update_layout(title_text=f"Population share by population density classes (H{reso}).")
+        fig.update_layout(title_text=f"Population share by pop. density classes (H{reso}).")
         fig.update_xaxes(title='Year')
         fig.update_yaxes(title='% of total population in class')
         return fig
@@ -291,8 +301,8 @@ with st.expander('Graphs', expanded=True):
     #plots
     p1,p2,p3 =  st.columns(3)
     p1.plotly_chart(share_plot(q_shares), use_container_width=True)
-    p2.plotly_chart(gfa_share_plot(gfa_shares), use_container_width=True)
-    p3.plotly_chart(pop_share_plot(pop_shares), use_container_width=True)
+    p2.plotly_chart(pop_share_plot(pop_shares), use_container_width=True)
+    p3.plotly_chart(gfa_share_plot(gfa_shares), use_container_width=True)
 
     selite = """
     <b>Density classification:</b><br>
