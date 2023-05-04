@@ -95,7 +95,7 @@ eng_feat = {
 
 @st.cache_data()
 def load_data():
-    path = Path(__file__).parent / 'data/h3_10_PKS_kem2_VS_palv.csv'
+    path = Path(__file__).parent / 'data/h3_10_pks_corrs.csv'  #'data/h3_10_PKS_kem2_VS_palv.csv'
     with path.open() as f:
         data = pd.read_csv(f, index_col='h3_10', header=0)#.astype(str)
     # translate columns
@@ -143,8 +143,17 @@ else:
     
 # filters..
 col_list_all = mygdf.drop(columns=['kunta','pno']).columns.to_list()
-default_ix = col_list_all.index('Residential GFA in 2016')
-color = s2.selectbox('Filter by feature quantiles (%)', col_list_all, index=default_ix)
+
+def purge(mylist,purge_list):
+    for i in purge_list:
+        mylist = [c for c in mylist if i not in c]
+    return mylist
+
+purgelist = ['WO','SA','SU']
+feat_list = purge(col_list_all,purge_list=purgelist)
+   
+default_ix = feat_list.index('Residential GFA in 2016')
+color = s2.selectbox('Filter by feature quantiles (%)', feat_list, index=default_ix)
 q_range = s3.slider(' ',0,100,(0,100),10)
 # filter accordingly..
 mygdf = mygdf.loc[mygdf[f'{color}'].astype(int) > mygdf[f'{color}'].astype(int).quantile(q_range[0]/100)] 

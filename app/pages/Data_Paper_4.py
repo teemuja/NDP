@@ -199,123 +199,122 @@ with st.expander('Map', expanded=False):
 
     #st.dataframe(plot.drop(columns='geometry'))
 
-# map
-with st.expander('Graphs', expanded=True):
+# graphs
+st.subheader(f"Population shares in density classes. ")
+hex_area = round(plot['h3_cell_area'].mean()/10000,1)
+if hex_area < 100:
+    st.markdown(f'Zone "{zone}" in resolution H{reso} (hexagon area: {hex_area} ha)')
+else:
+    st.markdown(f'Zone "{zone}" in resolution H{reso} (hexagon area: {round(hex_area/100,1)} km²)')
 
-    st.subheader(f"Population shares in density classes. ")
-    hex_area = round(plot['h3_cell_area'].mean()/10000,1)
-    if hex_area < 100:
-        st.markdown(f'Zone "{zone}" in resolution H{reso} (hexagon area: {hex_area} ha)')
-    else:
-        st.markdown(f'Zone "{zone}" in resolution H{reso} (hexagon area: {round(hex_area/100,1)} km²)')
+#growth plot
+import plotly.graph_objects as go
+# Add traces https://plotly.com/python/multiple-axes/#multiple-axes
 
-    #growth plot
-    import plotly.graph_objects as go
-    # Add traces https://plotly.com/python/multiple-axes/#multiple-axes
+# func to generate pop shares by quantiles for each year
+def qshare(plot):
+    q_list = [90,75,50,25,10]
+    q_dfs = []
+    for q in q_list:
+        g90 = round(plot.loc[plot['pop90'] > plot['pop90'].quantile(q/100)]['pop90'].sum(),0)
+        g00 = round(plot.loc[plot['pop00'] > plot['pop00'].quantile(q/100)]['pop00'].sum(),0)
+        g10 = round(plot.loc[plot['pop10'] > plot['pop10'].quantile(q/100)]['pop10'].sum(),0)
+        g20 = round(plot.loc[plot['pop20'] > plot['pop20'].quantile(q/100)]['pop20'].sum(),0)
+        d = {
+            #'year': ['1990','2000','2010','2020'],
+            f'share_{q}': [round(g90/plot['pop90'].sum(),2)*100,
+                            round(g00/plot['pop00'].sum(),2)*100,
+                            round(g10/plot['pop10'].sum(),2)*100,
+                            round(g20/plot['pop20'].sum(),2)*100]
+        }
+        q_df = pd.DataFrame(data=d, index=['1990','2000','2010','2020'])
+        q_dfs.append(q_df)
 
-    # func to generate pop shares by quantiles for each year
-    def qshare(plot):
-        q_list = [90,75,50,25,10]
-        q_dfs = []
-        for q in q_list:
-            g90 = round(plot.loc[plot['pop90'] > plot['pop90'].quantile(q/100)]['pop90'].sum(),0)
-            g00 = round(plot.loc[plot['pop00'] > plot['pop00'].quantile(q/100)]['pop00'].sum(),0)
-            g10 = round(plot.loc[plot['pop10'] > plot['pop10'].quantile(q/100)]['pop10'].sum(),0)
-            g20 = round(plot.loc[plot['pop20'] > plot['pop20'].quantile(q/100)]['pop20'].sum(),0)
-            d = {
-                #'year': ['1990','2000','2010','2020'],
-                f'share_{q}': [round(g90/plot['pop90'].sum(),2)*100,
-                               round(g00/plot['pop00'].sum(),2)*100,
-                               round(g10/plot['pop10'].sum(),2)*100,
-                               round(g20/plot['pop20'].sum(),2)*100]
-            }
-            q_df = pd.DataFrame(data=d, index=['1990','2000','2010','2020'])
-            q_dfs.append(q_df)
+    #dfs = [df.set_index('year') for df in q_dfs]
+    df_out = pd.concat(q_dfs, axis=1)
+    return df_out
 
-        #dfs = [df.set_index('year') for df in q_dfs]
-        df_out = pd.concat(q_dfs, axis=1)
-        return df_out
-    
-    q_shares = qshare(plot=plot)
+q_shares = qshare(plot=plot)
 
-    def share_plot(df):
-        linecolors = px.colors.qualitative.Plotly
-        fig = go.Figure()
-        fig.add_traces(go.Scatter(x=df.index, y = df['share_90'],name='90%', mode = 'lines', line=dict(color=linecolors[0])))
-        fig.add_traces(go.Scatter(x=df.index, y = df['share_75'],name='75%', mode = 'lines', line=dict(color=linecolors[1])))
-        fig.add_traces(go.Scatter(x=df.index, y = df['share_50'],name='50%', mode = 'lines', line=dict(color=linecolors[2])))
-        fig.add_traces(go.Scatter(x=df.index, y = df['share_25'],name='25%', mode = 'lines', line=dict(color=linecolors[3])))
-        fig.add_traces(go.Scatter(x=df.index, y = df['share_10'],name='10%', mode = 'lines', line=dict(color=linecolors[4])))
-        fig.update_layout(title_text=f"Population share in pop. density quantiles (H{reso}).")
-        fig.update_xaxes(title='Year')
-        fig.update_yaxes(title='% of total population above quantile')
-        return fig
+def share_plot(df):
+    linecolors = px.colors.qualitative.Plotly
+    fig = go.Figure()
+    fig.add_traces(go.Scatter(x=df.index, y = df['share_90'],name='90%', mode = 'lines', line=dict(color=linecolors[0])))
+    fig.add_traces(go.Scatter(x=df.index, y = df['share_75'],name='75%', mode = 'lines', line=dict(color=linecolors[1])))
+    fig.add_traces(go.Scatter(x=df.index, y = df['share_50'],name='50%', mode = 'lines', line=dict(color=linecolors[2])))
+    fig.add_traces(go.Scatter(x=df.index, y = df['share_25'],name='25%', mode = 'lines', line=dict(color=linecolors[3])))
+    fig.add_traces(go.Scatter(x=df.index, y = df['share_10'],name='10%', mode = 'lines', line=dict(color=linecolors[4])))
+    fig.update_layout(title_text=f"Population share in pop. density quantiles (H{reso}).")
+    fig.update_xaxes(title='Year')
+    fig.update_yaxes(title='% of total population above quantile')
+    return fig
 
-    # pop class shares
-    def density_class_share(plot,feat='pop'):
-        den_list = ["dense","compact","spacious","sprawl","less"]
-        list_of_df_shares = []
-        for d in den_list:
-            pop_shares_in_class_d = []
-            for yr in ['90','00','10','20']:
-                popsum = plot.loc[plot[f'class_{feat}{yr}'] == d][f'pop{yr}'].sum()
-                popshare_yr = round(popsum/plot[f'pop{yr}'].sum(),2)*100
-                pop_shares_in_class_d.append(popshare_yr)
-            # pop_shares_in_class_d -> df
-            d = {f'share_{d}': pop_shares_in_class_d}
-            df_shares_of_d = pd.DataFrame(data=d, index=['1990','2000','2010','2020'])
-            list_of_df_shares.append(df_shares_of_d)
+# pop class shares
+def density_class_share(plot,feat='pop'):
+    den_list = ["dense","compact","spacious","sprawl","less"]
+    list_of_df_shares = []
+    for d in den_list:
+        pop_shares_in_class_d = []
+        for yr in ['90','00','10','20']:
+            popsum = plot.loc[plot[f'class_{feat}{yr}'] == d][f'pop{yr}'].sum()
+            popshare_yr = round(popsum/plot[f'pop{yr}'].sum(),2)*100
+            pop_shares_in_class_d.append(popshare_yr)
+        # pop_shares_in_class_d -> df
+        d = {f'share_{d}': pop_shares_in_class_d}
+        df_shares_of_d = pd.DataFrame(data=d, index=['1990','2000','2010','2020'])
+        list_of_df_shares.append(df_shares_of_d)
 
-        df_out = pd.concat(list_of_df_shares, axis=1)
-        return df_out
+    df_out = pd.concat(list_of_df_shares, axis=1)
+    return df_out
 
-    pop_shares = density_class_share(plot,feat='pop')
-    gfa_shares = density_class_share(plot,feat='gfa')
+pop_shares = density_class_share(plot,feat='pop')
+gfa_shares = density_class_share(plot,feat='gfa')
 
-    def pop_share_plot(df):
-        linecolors = px.colors.qualitative.Plotly
-        fig = go.Figure()
-        fig.add_traces(go.Scatter(x=df.index, y = df['share_dense'],name='dense', mode = 'lines', line=dict(color=linecolors[0])))
-        fig.add_traces(go.Scatter(x=df.index, y = df['share_compact'],name='compact', mode = 'lines', line=dict(color=linecolors[1])))
-        fig.add_traces(go.Scatter(x=df.index, y = df['share_spacious'],name='spacious', mode = 'lines', line=dict(color=linecolors[2])))
-        fig.add_traces(go.Scatter(x=df.index, y = df['share_sprawl'],name='sprawl', mode = 'lines', line=dict(color=linecolors[3])))
-        fig.add_traces(go.Scatter(x=df.index, y = df['share_less'],name='less', mode = 'lines', line=dict(color=linecolors[4])))
-        fig.update_layout(title_text=f"Population share by pop. density classes (H{reso}).")
-        fig.update_xaxes(title='Year')
-        fig.update_yaxes(title='% of total population in class')
-        return fig
-    
-    def gfa_share_plot(df):
-        linecolors = px.colors.qualitative.Plotly
-        fig = go.Figure()
-        fig.add_traces(go.Scatter(x=df.index, y = df['share_dense'],name='dense', mode = 'lines', line=dict(color=linecolors[0])))
-        fig.add_traces(go.Scatter(x=df.index, y = df['share_compact'],name='compact', mode = 'lines', line=dict(color=linecolors[1])))
-        fig.add_traces(go.Scatter(x=df.index, y = df['share_spacious'],name='spacious', mode = 'lines', line=dict(color=linecolors[2])))
-        fig.add_traces(go.Scatter(x=df.index, y = df['share_sprawl'],name='sprawl', mode = 'lines', line=dict(color=linecolors[3])))
-        fig.add_traces(go.Scatter(x=df.index, y = df['share_less'],name='less', mode = 'lines', line=dict(color=linecolors[4])))
-        fig.update_layout(title_text=f"Population share by GFA density classes (H{reso}).")
-        fig.update_xaxes(title='Year')
-        fig.update_yaxes(title='% of total population in class')
-        return fig
-    
-    #plots
-    p1,p2,p3 =  st.columns(3)
-    p1.plotly_chart(share_plot(q_shares), use_container_width=True)
-    p2.plotly_chart(pop_share_plot(pop_shares), use_container_width=True)
-    p3.plotly_chart(gfa_share_plot(gfa_shares), use_container_width=True)
+def pop_share_plot(df):
+    linecolors = px.colors.qualitative.Plotly
+    fig = go.Figure()
+    fig.add_traces(go.Scatter(x=df.index, y = df['share_dense'],name='dense', mode = 'lines', line=dict(color=linecolors[0])))
+    fig.add_traces(go.Scatter(x=df.index, y = df['share_compact'],name='compact', mode = 'lines', line=dict(color=linecolors[1])))
+    fig.add_traces(go.Scatter(x=df.index, y = df['share_spacious'],name='spacious', mode = 'lines', line=dict(color=linecolors[2])))
+    fig.add_traces(go.Scatter(x=df.index, y = df['share_sprawl'],name='sprawl', mode = 'lines', line=dict(color=linecolors[3])))
+    fig.add_traces(go.Scatter(x=df.index, y = df['share_less'],name='less', mode = 'lines', line=dict(color=linecolors[4])))
+    fig.update_layout(title_text=f"Population share by pop. density classes (H{reso}).")
+    fig.update_xaxes(title='Year')
+    fig.update_yaxes(title='% of total population in class')
+    return fig
 
-    selite = """
-    <b>Density classification:</b><br>
-    <i>
-    Dense: e > 0.6 | pop/ha > 70 <br>
-    Compact: 0.6 - 0.3 | 70 - 50 <br>
-    Spacious: 0.3 - 0.15 | 50 - 10 <br>
-    Sprawl: 0.15 - 0.10 | 10 - 2 <br>
-    Less: e < 0.10 | pop/ha < 2 <br>
-    </i>
-    <br>
-    """
-    st.markdown(selite, unsafe_allow_html=True)
+def gfa_share_plot(df):
+    linecolors = px.colors.qualitative.Plotly
+    fig = go.Figure()
+    fig.add_traces(go.Scatter(x=df.index, y = df['share_dense'],name='dense', mode = 'lines', line=dict(color=linecolors[0])))
+    fig.add_traces(go.Scatter(x=df.index, y = df['share_compact'],name='compact', mode = 'lines', line=dict(color=linecolors[1])))
+    fig.add_traces(go.Scatter(x=df.index, y = df['share_spacious'],name='spacious', mode = 'lines', line=dict(color=linecolors[2])))
+    fig.add_traces(go.Scatter(x=df.index, y = df['share_sprawl'],name='sprawl', mode = 'lines', line=dict(color=linecolors[3])))
+    fig.add_traces(go.Scatter(x=df.index, y = df['share_less'],name='less', mode = 'lines', line=dict(color=linecolors[4])))
+    fig.update_layout(title_text=f"Population share by GFA density classes (H{reso}).")
+    fig.update_xaxes(title='Year')
+    fig.update_yaxes(title='% of total population in class')
+    return fig
+
+#plots in tabs
+tab1,tab2 =  st.tabs(['In pop density classes','In GFA density classes'])
+with tab1:
+    st.plotly_chart(pop_share_plot(pop_shares), use_container_width=True)
+with tab2:
+    st.plotly_chart(gfa_share_plot(gfa_shares), use_container_width=True)
+
+selite = """
+<b>Density classification:</b><br>
+<i>
+Dense: e > 0.6 | pop/ha > 70 <br>
+Compact: 0.6 - 0.3 | 70 - 50 <br>
+Spacious: 0.3 - 0.15 | 50 - 10 <br>
+Sprawl: 0.15 - 0.10 | 10 - 2 <br>
+Less: e < 0.10 | pop/ha < 2 <br>
+</i>
+<br>
+"""
+st.markdown(selite, unsafe_allow_html=True)
 
 #footer
 st.markdown('---')

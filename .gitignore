@@ -128,9 +128,7 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# osx
+# env based
 .DS_store
-
-# st
 .streamlit
 app/cache/
