@@ -205,13 +205,14 @@ with st.expander('Data validation', expanded=False):
     from plotly.subplots import make_subplots
     df = plot.copy()
     # select feat
+    ycols = ['Urban amenities (OPC excluded)',
+            'One person companies (OPC) in urban amenities',
+            'Consumer daily goods and kiosks',
+            'Retail trade',
+            'Wholesale and retail trade']
     x1,y1 = st.columns(2)
     xvalue = x1.selectbox('Choose X axis data',['Residential GFA','Total GFA'])
-    yvalue = y1.selectbox('Choose y axis data',['Urban amenities (OPC excluded)',
-                                                'One person companies (OPC) in urban amenities',
-                                                'Consumer daily goods and kiosks',
-                                                'Retail trade',
-                                                'Wholesale and retail trade'])
+    yvalue = y1.selectbox('Choose y axis data',ycols)
     st.caption('Change H3-resolution for scatter plot using filter selectors')
     # plots
     trace1 = go.Scatter(
@@ -278,12 +279,15 @@ with st.expander('Data validation', expanded=False):
     fig_y = go.Figure(data=traces_y, layout=layout).update_yaxes(range=[0, 200])
     #fig_hist = px.histogram(traces, x=yvalue, color='year')
     #m1.plotly_chart(fig_x, use_container_width=True)
-    st.plotly_chart(fig_y, use_container_width=True)
+
+    # FIX boxplot check below!!
+    #st.plotly_chart(fig_y, use_container_width=True)
     
     # plot box cox histogram version..
-    if my_method == 'pearson':
+    if my_method == 'pearson_x':
         try:
-            df_box = df_[(df_[df_.columns] > 0).all(axis=1)]
+            df_num = df_[col_list_all]  #apply(pd.to_numeric, errors='coerce')
+            df_box = df_num[(df_num[df_num.columns] > 0).all(axis=1)]
             df_box[f'{yvalue} in 2000'],lam2000 = boxcox(df_box[f'{yvalue} in 2000'])
             df_box[f'{yvalue} in 2016'],lam2016 = boxcox(df_box[f'{yvalue} in 2016'])
             y2000b = go.Histogram(x=df_box[f'{yvalue} in 2000'],opacity=0.75,name=f'{yvalue} in 2000',nbinsx=20)

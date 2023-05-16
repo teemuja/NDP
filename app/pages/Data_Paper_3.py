@@ -123,7 +123,7 @@ lon = plot.unary_union.centroid.x
 mymap = px.choropleth_mapbox(plot,
                                 geojson=plot.geometry,
                                 locations=plot.index,
-                                title=f'{add} buildings on map',
+                                title=f'{add}',
                                 color="building",
                                 hover_name='building',
                                 hover_data=['building:levels','addr:street'],
@@ -137,7 +137,8 @@ mymap = px.choropleth_mapbox(plot,
                                 width=1200,
                                 height=700
                                 )
-st.plotly_chart(mymap, use_container_width=True)
+with st.expander("Map", expanded=True):
+    st.plotly_chart(mymap, use_container_width=True)
 #st.dataframe(plot.drop(columns='geometry'))
 flr_rate = 100 - round(buildings['building:levels'].isna().sum() / len(buildings.index) * 100,0)
 floor_med = buildings['building:levels'].median()
@@ -234,7 +235,7 @@ mytags = st.multiselect('Select tags(building types) to include for density anal
 st.caption('Top-9 tags mostly used as a default selection set. See sorter legend of map')
 my_buildings = buildings.loc[buildings['building'].isin(mytags)]
 
-run = st.checkbox('Autocalculate densities')
+run = st.checkbox('Autocalculate densities', value=False)
 if run:
     density_data = osm_densities(my_buildings)
     case_data = classify_density(density_data)
