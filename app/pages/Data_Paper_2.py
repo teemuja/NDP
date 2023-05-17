@@ -143,35 +143,38 @@ else:
 
 #rename Nousijamaa col
 mygdf.rename(columns={'Nousijamaa':'Public transit use 2016'}, inplace=True)
-    
-# filters..
-col_list_all = mygdf.drop(columns=['kunta','pno']).columns.to_list()
+# !!!! drop 'Consumer daily goods and kiosks' untill data fixed !!!!
+mygdf.drop(columns=['Consumer daily goods and kiosks in 2000','Consumer daily goods and kiosks in 2016'], inplace=True)
 
-# func to purge col names by characters in them
-def purge(mylist,purge_list):
-    for i in purge_list:
-        mylist = [c for c in mylist if i not in c]
-    return mylist
-
-purgelist = ['WO','SA','SU']
-feat_list = purge(col_list_all,purge_list=purgelist)
-   
-default_ix = feat_list.index('Residential GFA in 2016')
-color = s2.selectbox('Filter by feature quantiles (%)', feat_list, index=default_ix)
-q_range = s3.slider(' ',0,100,(0,100),10)
+#q_range = s3.slider(' ',0,100,(0,100),10)
 # filter accordingly..
-mygdf = mygdf.loc[mygdf[f'{color}'].astype(int) > mygdf[f'{color}'].astype(int).quantile(q_range[0]/100)] 
-mygdf = mygdf.loc[mygdf[f'{color}'].astype(int) < mygdf[f'{color}'].astype(int).quantile(q_range[1]/100)]
+#mygdf = mygdf.loc[mygdf[f'{color}'].astype(int) > mygdf[f'{color}'].astype(int).quantile(q_range[0]/100)] 
+#mygdf = mygdf.loc[mygdf[f'{color}'].astype(int) < mygdf[f'{color}'].astype(int).quantile(q_range[1]/100)]
 
 # the checks
 with st.expander('Data validation', expanded=False):
-    st.subheader('Filtered data on map')
+    #
     mapplace = st.empty()
-    level = st.slider('Change H3-resolution (H6-H9) for validation checks',6,9,9,1)
-    st.caption('https://h3geo.org/docs/core-library/restable/')
+    m1,m2 = st.columns(2)
+    
+    # func to purge col names by characters in them
+    col_list_all = mygdf.drop(columns=['kunta','pno']).columns.to_list()
+    def purge(mylist,purge_list):
+        for i in purge_list:
+            mylist = [c for c in mylist if i not in c]
+        return mylist
+    purgelist = ['WO','SA','SU']
+    feat_list = purge(col_list_all,purge_list=purgelist)
+    default_ix = feat_list.index('Residential GFA in 2016')
+    color = m1.selectbox('Check features on map', feat_list, index=default_ix)
+    level = m2.slider('Change H3-resolution (H6-H9) for validation checks',6,9,9,1)
+    m2.caption('https://h3geo.org/docs/core-library/restable/')
+
     # map plot
     if len(mygdf) > 1:
         plot = mygdf.h3.h3_to_parent_aggregate(level)
+        # exclude zero hexas
+        plot = plot[plot[color] > 0]
         # map plot
         lat = plot.unary_union.centroid.y
         lon = plot.unary_union.centroid.x
@@ -211,7 +214,7 @@ with st.expander('Data validation', expanded=False):
     # select feat
     ycols = ['Urban amenities (OPC excluded)',
             'One person companies (OPC) in urban amenities',
-            'Consumer daily goods and kiosks',
+            #'Consumer daily goods and kiosks',
             'Retail trade',
             'Wholesale and retail trade']
     x1,y1 = st.columns(2)
@@ -293,28 +296,30 @@ with st.expander('Data validation', expanded=False):
     
     # plot box cox histogram version..
     if my_method == 'pearson':
-        #try:
-        df_box2000 = df_[df_[f'{yvalue} in 2000'] > 0]
-        df_box2016 = df_[df_[f'{yvalue} in 2016'] > 0]
-        #st.table(df_box.describe())
-        #st.stop()
-        df_box2000[f'{yvalue} in 2000'],lam2000 = boxcox(df_box2000[f'{yvalue} in 2000'])
-        df_box2016[f'{yvalue} in 2016'],lam2016 = boxcox(df_box2016[f'{yvalue} in 2016'])
-        y2000b = go.Histogram(x=df_box2000[f'{yvalue} in 2000'],opacity=0.75,name=f'{yvalue} in 2000',nbinsx=20)
-        y2016b = go.Histogram(x=df_box2016[f'{yvalue} in 2016'],opacity=0.75,name=f'{yvalue} in 2016',nbinsx=20)
-        layout_b = go.Layout(title='Box Cox transformed histograms',barmode='overlay')
-        traces_y_box = [y2000b,y2016b]
-        fig_y_box = go.Figure(data=traces_y_box, layout=layout_b) #.update_yaxes(range=[0, 200])
-        st.plotly_chart(fig_y_box, use_container_width=True)
-        lam1 = round(lam2000,2)
-        lam2 = round(lam2016,2)
-        st.write(f'Box Cox lambda: 2000= {lam1}, 2016= {lam2} in resolution H{level}.')
-        st.write('**NOTE** Sample of the whole region was used in resolution H6 for each study to avoid  '
-                    'biases of too small samples in large scale resolution.  '
-                    'This way H6 resolution acts as a reference correlation in this data paper.  '
-                    'Correlation loss -graph shows how correlation falls in particular part of the city  '
-                    'when zooming in to the more local level scales.')
-        #except Exception as e: st.warning(e)
+        try:
+            df_box2000 = df_[df_[f'{yvalue} in 2000'] > 0]
+            df_box2016 = df_[df_[f'{yvalue} in 2016'] > 0]
+            #st.table(df_box.describe())
+            #st.stop()
+            df_box2000[f'{yvalue} in 2000'],lam2000 = boxcox(df_box2000[f'{yvalue} in 2000'])
+            df_box2016[f'{yvalue} in 2016'],lam2016 = boxcox(df_box2016[f'{yvalue} in 2016'])
+            y2000b = go.Histogram(x=df_box2000[f'{yvalue} in 2000'],opacity=0.75,name=f'{yvalue} in 2000',nbinsx=20)
+            y2016b = go.Histogram(x=df_box2016[f'{yvalue} in 2016'],opacity=0.75,name=f'{yvalue} in 2016',nbinsx=20)
+            layout_b = go.Layout(title='Box Cox transformed histograms',barmode='overlay')
+            traces_y_box = [y2000b,y2016b]
+            fig_y_box = go.Figure(data=traces_y_box, layout=layout_b) #.update_yaxes(range=[0, 200])
+            st.plotly_chart(fig_y_box, use_container_width=True)
+            lam1 = round(lam2000,2)
+            lam2 = round(lam2016,2)
+            st.write(f'Box Cox lambda: 2000= {lam1}, 2016= {lam2} in resolution H{level}.')
+            st.write('**NOTE** Sample of the whole region (All suburbs) was used for resolution H6 in each study to avoid  '
+                        'biases of too small samples in large scale resolution.  '
+                        'This way H6 resolution acts as a reference correlation in this data paper.  '
+                        'Correlation loss -graph shows how correlation falls in particular part of the city  '
+                        'when zooming in to the more local level scales.')
+        except Exception as e:
+            st.warning(e)
+            pass
 
 # corr graphs
 st.subheader('Correlation loss')
@@ -326,14 +331,14 @@ def corr_loss(df,h=10,corr_type='year',method='pearson'): # h-value is one more 
         y_list=['One person companies (OPC) in urban amenities in 2000',
                 'Urban amenities (OPC excluded) in 2000',
                 'Wholesale and retail trade in 2000',
-                'Consumer daily goods and kiosks in 2000',
+                #'Consumer daily goods and kiosks in 2000',
                 'Retail trade in 2000']
     elif corr_type == '2016':
         x_list=['Total GFA in 2016',
                 'Residential GFA in 2016']
         y_list=['One person companies (OPC) in urban amenities in 2016',
                 'Urban amenities (OPC excluded) in 2016',
-                'Consumer daily goods and kiosks in 2016',
+                #'Consumer daily goods and kiosks in 2016',
                 'Retail trade in 2016']
     elif corr_type == 'year':
         x_list=['Total GFA',
@@ -341,7 +346,7 @@ def corr_loss(df,h=10,corr_type='year',method='pearson'): # h-value is one more 
         y_list=['One person companies (OPC) in urban amenities',
                 'Urban amenities (OPC excluded)',
                 'Wholesale and retail trade',
-                'Consumer daily goods and kiosks',
+                #'Consumer daily goods and kiosks',
                 'Retail trade']
 
     # prepare corrs    
@@ -377,8 +382,8 @@ facet_feat = {
     'Urban amenities (OPC excluded) in 2016':'Urban amenities (OPC excluded)',
     'Wholesale and retail trade in 2000':'Wholesale and retail trade',
     'Wholesale and retail trade in 2016':'Wholesale and retail trade',
-    'Consumer daily goods and kiosks in 2000':'Consumer daily goods and kiosks',
-    'Consumer daily goods and kiosks in 2016':'Consumer daily goods and kiosks',
+    #'Consumer daily goods and kiosks in 2000':'Consumer daily goods and kiosks',
+    #'Consumer daily goods and kiosks in 2016':'Consumer daily goods and kiosks',
     'Retail trade in 2000':'Retail trade',
     'Retail trade in 2016':'Retail trade'
 }
@@ -388,7 +393,7 @@ facet_col_list_2000 = [
     'One person companies (OPC) in urban amenities in 2000',
     'Urban amenities (OPC excluded) in 2000',
     'Wholesale and retail trade in 2000',
-    'Consumer daily goods and kiosks in 2000',
+    #'Consumer daily goods and kiosks in 2000',
     'Retail trade in 2000'
 ]
 facet_col_list_2016 = [
@@ -397,15 +402,14 @@ facet_col_list_2016 = [
     'One person companies (OPC) in urban amenities in 2016',
     'Urban amenities (OPC excluded) in 2016',
     'Wholesale and retail trade in 2016',
-    'Consumer daily goods and kiosks in 2016',
+    #'Consumer daily goods and kiosks in 2016',
     'Retail trade in 2016'
 ]
 
 # corrs combined
-#@st.cache_data()
 def corrs_combine(mygdf):
     # all subs for H6 reference values for all 
-    allsub = gdf#.loc[~gdf.pno.isin(centre_pnos)]
+    allsub = gdf #.loc[~gdf.pno.isin(centre_pnos)]
     # 2000
     corr_2000 = corr_loss(mygdf[facet_col_list_2000].rename(columns=facet_feat),corr_type='year',method=my_method)
     corr_2000_all = corr_loss(allsub[facet_col_list_2000].rename(columns=facet_feat),corr_type='year',method=my_method)
@@ -420,12 +424,18 @@ def corrs_combine(mygdf):
     corrs_all = pd.concat([corr_2000,corr_2016]) #corr_2000.append(corr_2016)
     return corrs_all
 
-corrs = corrs_combine(mygdf=mygdf)
+# do the corrs
+df4corr = mygdf[feat_list] # use only feat_cols
+try:
+    corrs = corrs_combine(mygdf=df4corr)
+except Exception as e:
+    st.warning(f"Issue occured with BoxCox transformation: {e}")
+    st.stop()
 
 # select feat for corrs
 plot_list = corrs.columns.to_list()[:-1]
 my_plot_list = ['Residential GFA VS Urban amenities (OPC excluded)',
-                'Residential GFA VS Consumer daily goods and kiosks',
+                #'Residential GFA VS Consumer daily goods and kiosks',
                 'Residential GFA VS Retail trade'
                 ]
 scat_list = st.multiselect('Choose data for the correlation plot', plot_list,default=my_plot_list)
@@ -435,12 +445,8 @@ if len(scat_list) > 0:
 else:
     st.stop()
 
-# data in use for corr
-st.caption(f'Data in use: {color} -value quantiles {q_range[0]}-{q_range[1]}% in {kuntani}')
-graph_title = kuntani
-
-
 # plot
+graph_title = kuntani
 fig_corr = px.line(corr_plot,
                    labels = {'index':'H3-resolution','value':'Correlation','variable':'Correlation pairs'},
                    title=f'Correlation loss in {graph_title}', facet_col='year' )
@@ -456,9 +462,17 @@ fig_corr['layout'].update(shapes=[{'type': 'line','y0':0.5,'y1': 0.5,'x0':str(co
 #    fillcolor="white", opacity=0.8,
 #    layer="above", line_width=0,
 #)
-fig_corr.update_layout(yaxis_range=[-1,1])
+graph_place = st.empty()
+fixed = st.checkbox('Use fixed scale')
+if fixed:
+    minimi = -0.5
+else:
+    minimi = corr_plot.stack().min()
+fig_corr.update_layout(yaxis_range=[minimi,1])
 #fig_corr.update_layout(legend=dict(orientation="h",yanchor="bottom",y=-0.2,xanchor="left",x=0))
-st.plotly_chart(fig_corr, use_container_width=True)
+with graph_place:
+    st.plotly_chart(fig_corr, use_container_width=True)
+
 
 with st.expander('Classification', expanded=False):       
     class_expl = """
@@ -469,7 +483,6 @@ with st.expander('Classification', expanded=False):
     _Information and communication_  
     _Financial and insurance activities_  
     _Other service activities_  
-    **Consumer daily goods and kiosks** refers to the TOL-classes 5211+5212(TOL1995) for 2000 data and 4711+4719 (TOL2008) for 2016 data.  
     **Retail trade** refers to the retail classes 52 and 47 accordingly.  
     More info: <a href="https://www.stat.fi/en/luokitukset/toimiala/" target="_blank">Stat.fi</a>
 
@@ -484,6 +497,8 @@ with st.expander('Classification', expanded=False):
     """
     st.markdown(class_expl, unsafe_allow_html=True)
 
+# **Consumer daily goods and kiosks** refers to the TOL-classes 5211+5212(TOL1995) for 2000 data and 4711+4719 (TOL2008) for 2016 data.  
+    
 st.subheader('Case studies')
 
 with st.expander('Public transit use 2016', expanded=False):
@@ -525,8 +540,49 @@ with st.expander('Public transit use 2016', expanded=False):
     st.markdown(pub_expl, unsafe_allow_html=True)
 
 with st.expander('Daytime population', expanded=False):
-    # remove outliers
-    st.markdown('Coming soon...')
+    # select daytime cols
+    col_list_all = df.drop(columns=['kunta','pno']).columns.to_list()
+    def selectonly(mylist,sel_list):
+        for i in sel_list:
+            mylist = [c for c in mylist if i in c]
+        return mylist
+    
+    selectlist = ['WO','SA','SU']
+    #df = df.loc[df['Total GFA in 2016'] < df['Total GFA in 2016'].quantile(0.9)]
+    wo_24 = df.filter(regex='WO').join(df[['Total GFA in 2016','Residential GFA in 2016']])
+    sa_24 = df.filter(regex='SA').join(df[['Total GFA in 2016','Residential GFA in 2016']])
+    su_24 = df.filter(regex='SU').join(df[['Total GFA in 2016','Residential GFA in 2016']])
+    #
+    times = wo_24.drop(columns=['Total GFA in 2016','Residential GFA in 2016']).columns.tolist()
+    #time = st.multiselect('Select times', times, default=times)
+    
+    # plots
+    traceRES24 = go.Scatter(
+        x=df['Residential GFA in 2016'],
+        y=df[times],
+        name='Residential GFA',
+        mode='markers',
+        marker=dict(
+                color='Brown',
+                size=7)
+    )
+    traceTOT24 = go.Scatter(
+        x=df['Total GFA in 2016'],
+        y=df[times],
+        name='Total GFA',
+        #yaxis='y2',
+        mode='markers',
+        marker=dict(
+                color='Orange',
+                size=7)
+    )
+    scat24 = make_subplots(specs=[[{"secondary_y": True}]],
+                            x_title='GFA',y_title='Activity')
+    scat24.add_trace(traceRES24)
+    scat24.add_trace(traceTOT24,secondary_y=False)
+    #scat24.update_layout(xaxis_range=[0,5000)
+    scat24.update_layout(title=f"Correlation on scatter plot at resolution H{level} in {kuntani} for 'Daytime populations' ")
+    st.plotly_chart(scat24, use_container_width=True)
     
 
 #footer
