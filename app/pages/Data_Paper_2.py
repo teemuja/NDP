@@ -140,10 +140,14 @@ elif kuntani == 'All suburbs':
     mygdf = gdf.loc[~gdf.pno.isin(centre_pnos)]
 else:
     mygdf = gdf.loc[gdf.kunta == kuntani]
+
+#rename Nousijamaa col
+mygdf.rename(columns={'Nousijamaa':'Public transit use 2016'}, inplace=True)
     
 # filters..
 col_list_all = mygdf.drop(columns=['kunta','pno']).columns.to_list()
 
+# func to purge col names by characters in them
 def purge(mylist,purge_list):
     for i in purge_list:
         mylist = [c for c in mylist if i not in c]
@@ -240,7 +244,7 @@ with st.expander('Data validation', expanded=False):
     scat.add_trace(trace2,secondary_y=True)
     if 'kuntani' not in globals():
         kuntani = 'selected neighborhoods'
-    scat.update_layout(title=f'Scatter plot on resolution H{level} in {kuntani}')
+    scat.update_layout(title=f"Scatter plot on resolution H{level} in {kuntani} for '{yvalue}' ")
 
     st.plotly_chart(scat, use_container_width=True)
 
@@ -263,11 +267,14 @@ with st.expander('Data validation', expanded=False):
     #
     count_2000 = df[f'{xvalue} in 2000'].count()
     count_2016 = df[f'{xvalue} in 2016'].count()
-    m1.metric(label=f"Sample size 2000/2016", value=f"{count_2000}/{count_2016}")
+    
     #st.markdown('---')
 
-    # histogram for data in current resollution level
-    df_ = df[(df.T != 0).any()].drop(columns='geometry')
+    # histogram for data in current resollution level --use only positive values
+    df_ = df[(df.T != 0).any()][feat_list] #.drop(columns='geometry')
+    df_ = df_.apply(pd.to_numeric, errors='coerce')
+    #st.table(df_.describe())
+    #st.stop()
     #x2000 = go.Histogram(x=df_[f'{xvalue} in 2000'],opacity=0.75,name=f'{xvalue} in 2000')
     #x2016 = go.Histogram(x=df_[f'{xvalue} in 2016'],opacity=0.75,name=f'{xvalue} in 2016')
     y2000 = go.Histogram(x=df_[f'{yvalue} in 2000'],opacity=0.75,name=f'{yvalue} in 2000')
@@ -281,36 +288,38 @@ with st.expander('Data validation', expanded=False):
     #m1.plotly_chart(fig_x, use_container_width=True)
 
     # FIX boxplot check below!!
-    #st.plotly_chart(fig_y, use_container_width=True)
+    st.plotly_chart(fig_y, use_container_width=True)
+    st.metric(label=f"Sample size 2000/2016", value=f"{count_2000}/{count_2016}")
     
     # plot box cox histogram version..
-    if my_method == 'pearson_x':
-        try:
-            df_num = df_[col_list_all]  #apply(pd.to_numeric, errors='coerce')
-            df_box = df_num[(df_num[df_num.columns] > 0).all(axis=1)]
-            df_box[f'{yvalue} in 2000'],lam2000 = boxcox(df_box[f'{yvalue} in 2000'])
-            df_box[f'{yvalue} in 2016'],lam2016 = boxcox(df_box[f'{yvalue} in 2016'])
-            y2000b = go.Histogram(x=df_box[f'{yvalue} in 2000'],opacity=0.75,name=f'{yvalue} in 2000',nbinsx=20)
-            y2016b = go.Histogram(x=df_box[f'{yvalue} in 2016'],opacity=0.75,name=f'{yvalue} in 2016',nbinsx=20)
-            layout_b = go.Layout(title='Box Cox transformed histograms',barmode='overlay')
-            traces_y_box = [y2000b,y2016b]
-            fig_y_box = go.Figure(data=traces_y_box, layout=layout_b) #.update_yaxes(range=[0, 200])
-            st.plotly_chart(fig_y_box, use_container_width=True)
-            lam1 = round(lam2000,2)
-            lam2 = round(lam2016,2)
-            st.write(f'Box Cox lambda: 2000={lam1}, 2016={lam2} in resolution H{level}.')
-            st.write('**NOTE** Sample of the whole region was used in resolution h6 for each study to avoid  '
-                     'biases of too small samples in h6 large scale resolution.  '
-                     'This way H6 resolution acts as a reference correlation in this data paper.  '
-                     'Correlation loss -graph shows how correlation falls in particular part of the city  '
-                     'when zooming in to the more local level scales.')
-        except Exception as e: st.warning(e)
+    if my_method == 'pearson':
+        #try:
+        df_box2000 = df_[df_[f'{yvalue} in 2000'] > 0]
+        df_box2016 = df_[df_[f'{yvalue} in 2016'] > 0]
+        #st.table(df_box.describe())
+        #st.stop()
+        df_box2000[f'{yvalue} in 2000'],lam2000 = boxcox(df_box2000[f'{yvalue} in 2000'])
+        df_box2016[f'{yvalue} in 2016'],lam2016 = boxcox(df_box2016[f'{yvalue} in 2016'])
+        y2000b = go.Histogram(x=df_box2000[f'{yvalue} in 2000'],opacity=0.75,name=f'{yvalue} in 2000',nbinsx=20)
+        y2016b = go.Histogram(x=df_box2016[f'{yvalue} in 2016'],opacity=0.75,name=f'{yvalue} in 2016',nbinsx=20)
+        layout_b = go.Layout(title='Box Cox transformed histograms',barmode='overlay')
+        traces_y_box = [y2000b,y2016b]
+        fig_y_box = go.Figure(data=traces_y_box, layout=layout_b) #.update_yaxes(range=[0, 200])
+        st.plotly_chart(fig_y_box, use_container_width=True)
+        lam1 = round(lam2000,2)
+        lam2 = round(lam2016,2)
+        st.write(f'Box Cox lambda: 2000= {lam1}, 2016= {lam2} in resolution H{level}.')
+        st.write('**NOTE** Sample of the whole region was used in resolution H6 for each study to avoid  '
+                    'biases of too small samples in large scale resolution.  '
+                    'This way H6 resolution acts as a reference correlation in this data paper.  '
+                    'Correlation loss -graph shows how correlation falls in particular part of the city  '
+                    'when zooming in to the more local level scales.')
+        #except Exception as e: st.warning(e)
 
 # corr graphs
 st.subheader('Correlation loss')
 
-
-def corr_loss(df,h=10,corr_type='year',method='pearson'):
+def corr_loss(df,h=10,corr_type='year',method='pearson'): # h-value is one more than generated corr-levels
     if corr_type == '2000':
         x_list=['Total GFA in 2000',
                 'Residential GFA in 2000']
@@ -356,7 +365,6 @@ def corr_loss(df,h=10,corr_type='year',method='pearson'):
     corr_df = pd.concat(frames, axis=1, ignore_index=False)
     return corr_df
 
-
 # use similar col names for facet plot
 facet_feat = {
     'Total GFA in 2000':'Total GFA',
@@ -394,7 +402,7 @@ facet_col_list_2016 = [
 ]
 
 # corrs combined
-@st.cache_data()
+#@st.cache_data()
 def corrs_combine(mygdf):
     # all subs for H6 reference values for all 
     allsub = gdf#.loc[~gdf.pno.isin(centre_pnos)]
@@ -448,10 +456,9 @@ fig_corr['layout'].update(shapes=[{'type': 'line','y0':0.5,'y1': 0.5,'x0':str(co
 #    fillcolor="white", opacity=0.8,
 #    layer="above", line_width=0,
 #)
-fig_corr.update_layout(yaxis_range=[-0.2,1])
+fig_corr.update_layout(yaxis_range=[-1,1])
 #fig_corr.update_layout(legend=dict(orientation="h",yanchor="bottom",y=-0.2,xanchor="left",x=0))
 st.plotly_chart(fig_corr, use_container_width=True)
-
 
 with st.expander('Classification', expanded=False):       
     class_expl = """
@@ -465,6 +472,7 @@ with st.expander('Classification', expanded=False):
     **Consumer daily goods and kiosks** refers to the TOL-classes 5211+5212(TOL1995) for 2000 data and 4711+4719 (TOL2008) for 2016 data.  
     **Retail trade** refers to the retail classes 52 and 47 accordingly.  
     More info: <a href="https://www.stat.fi/en/luokitukset/toimiala/" target="_blank">Stat.fi</a>
+
     <p style="font-family:sans-serif; color:grey; font-size: 12px;">
     Original raw data is from
     <a href="https://research.aalto.fi/fi/projects/l%C3%A4hi%C3%B6iden-kehityssuunnat-ja-uudelleenkonseptointi-2020-luvun-segr " target="_blank">Re:Urbia</a>
@@ -476,7 +484,50 @@ with st.expander('Classification', expanded=False):
     """
     st.markdown(class_expl, unsafe_allow_html=True)
 
+st.subheader('Case studies')
 
+with st.expander('Public transit use 2016', expanded=False):
+    # remove outliers
+    df = df.loc[df['Total GFA in 2016'] < df['Total GFA in 2016'].quantile(0.99)]
+    df = df.loc[df['Public transit use 2016'] < df['Public transit use 2016'].quantile(0.99)]
+    # plots
+    traceRES = go.Scatter(
+        x=df['Residential GFA in 2016'],
+        y=df['Public transit use 2016'],
+        name='Residential GFA',
+        mode='markers',
+        marker=dict(
+                color='Brown',
+                size=7)
+    )
+    traceTOT = go.Scatter(
+        x=df['Total GFA in 2016'],
+        y=df['Public transit use 2016'],
+        name='Total GFA',
+        yaxis='y2',
+        mode='markers',
+        marker=dict(
+                color='Orange',
+                size=7)
+    )
+    scatt = make_subplots(specs=[[{"secondary_y": True}]],
+                            x_title='GFA',y_title='Takeoffs')
+    scatt.add_trace(traceRES)
+    scatt.add_trace(traceTOT,secondary_y=False)
+    if 'kuntani' not in globals():
+        kuntani = 'selected neighborhoods'
+    scatt.update_layout(title=f"Scatter plot on resolution H{level} in {kuntani} for 'Public transit use 2016' ")
+    st.plotly_chart(scatt, use_container_width=True)
+
+    pub_expl = """
+    **Public transit usage data 2016:** <a href="https://www.avoindata.fi/data/en_GB/dataset/hsl-n-nousijamaarat-pysakeittain" target="_blank">Avoindata.fi</a>
+    """
+    st.markdown(pub_expl, unsafe_allow_html=True)
+
+with st.expander('Daytime population', expanded=False):
+    # remove outliers
+    st.markdown('Coming soon...')
+    
 
 #footer
 st.markdown('---')
