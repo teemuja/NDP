@@ -43,7 +43,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 header = '<p style="font-family:sans-serif; color:grey; font-size: 12px;">\
-        NDP data paper #2 V0.92\
+        NDP data paper #2 V0.97\
         </p>'
 st.markdown(header, unsafe_allow_html=True)
 # plot size setup
@@ -167,7 +167,7 @@ with st.expander('Data validation', expanded=False):
     feat_list = purge(col_list_all,purge_list=purgelist)
     default_ix = feat_list.index('Residential GFA in 2016')
     color = m1.selectbox('Check features on map', feat_list, index=default_ix)
-    level = m2.slider('Change H3-resolution (H6-H9) for validation checks',6,9,9,1)
+    level = m2.radio('Change H3-resolution for validation checks',(7,8,9),horizontal=True)
     m2.caption('https://h3geo.org/docs/core-library/restable/')
 
     # map plot
@@ -476,6 +476,8 @@ with graph_place:
 
 with st.expander('Classification', expanded=False):       
     class_expl = """
+    For used resolutions, see: <a href="https://h3geo.org/docs/core-library/restable/" target="_blank">h3geo.org</a>
+
     **Urban amenities** are all company business space locations which belong
     to the following finnish TOL-industry classes:  
     _Wholesale and retail_  
@@ -499,17 +501,33 @@ with st.expander('Classification', expanded=False):
 
 # **Consumer daily goods and kiosks** refers to the TOL-classes 5211+5212(TOL1995) for 2000 data and 4711+4719 (TOL2008) for 2016 data.  
     
-st.subheader('Case studies')
 
-with st.expander('Public transit use 2016', expanded=False):
+with st.expander('Case studies', expanded=False):
+    # study level
+    case_level = st.radio('Set H3-resolution for case studies',(7,8,9), horizontal=True)
+    if case_level != 9:
+        df = df.h3.h3_to_parent_aggregate(case_level)
+    else:
+        pass
+    
     # remove outliers
     df = df.loc[df['Total GFA in 2016'] < df['Total GFA in 2016'].quantile(0.99)]
     df = df.loc[df['Public transit use 2016'] < df['Public transit use 2016'].quantile(0.99)]
+
+    st.markdown('---')
+    st.subheader('Public transit use 2016')
     # plots
     traceRES = go.Scatter(
         x=df['Residential GFA in 2016'],
         y=df['Public transit use 2016'],
         name='Residential GFA',
+        text=df.index,
+        hovertemplate=
+        "<b>Haxagon %{text}</b><br><br>" +
+        "GFA: %{x:,.0f} sqr-m<br>" +
+        "Takeoffs: %{y}<br>" +
+        #"Population: %{marker.size:,}" +
+        "<extra></extra>",
         mode='markers',
         marker=dict(
                 color='Brown',
@@ -519,6 +537,13 @@ with st.expander('Public transit use 2016', expanded=False):
         x=df['Total GFA in 2016'],
         y=df['Public transit use 2016'],
         name='Total GFA',
+        text=df.index,
+        hovertemplate=
+        "<b>Haxagon %{text}</b><br><br>" +
+        "GFA: %{x:,.0f} sqr-m<br>" +
+        "Takeoffs: %{y}<br>" +
+        #"Population: %{marker.size:,}" +
+        "<extra></extra>",
         yaxis='y2',
         mode='markers',
         marker=dict(
@@ -526,20 +551,20 @@ with st.expander('Public transit use 2016', expanded=False):
                 size=7)
     )
     scatt = make_subplots(specs=[[{"secondary_y": True}]],
-                            x_title='GFA',y_title='Takeoffs')
+                            x_title='GFA in location',y_title='Takeoffs')
     scatt.add_trace(traceRES)
     scatt.add_trace(traceTOT,secondary_y=False)
     if 'kuntani' not in globals():
         kuntani = 'selected neighborhoods'
-    scatt.update_layout(title=f"Scatter plot on resolution H{level} in {kuntani} for 'Public transit use 2016' ")
+    scatt.update_layout(title=f"Scatter plot on resolution H{case_level} in {kuntani} for 'Public transit use 2016' ")
     st.plotly_chart(scatt, use_container_width=True)
-
     pub_expl = """
-    **Public transit usage data 2016:** <a href="https://www.avoindata.fi/data/en_GB/dataset/hsl-n-nousijamaarat-pysakeittain" target="_blank">Avoindata.fi</a>
+    Data source: <a href="https://www.avoindata.fi/data/en_GB/dataset/hsl-n-nousijamaarat-pysakeittain" target="_blank">Avoindata.fi</a>
     """
     st.markdown(pub_expl, unsafe_allow_html=True)
 
-with st.expander('Daytime population', expanded=False):
+    st.markdown('---')
+    st.subheader('Daytime population')
     # select daytime cols
     col_list_all = df.drop(columns=['kunta','pno']).columns.to_list()
     def selectonly(mylist,sel_list):
@@ -561,6 +586,13 @@ with st.expander('Daytime population', expanded=False):
         x=df['Residential GFA in 2016'],
         y=df[times],
         name='Residential GFA',
+        text=df.index,
+        hovertemplate=
+        "<b>Haxagon %{text}</b><br><br>" +
+        "GFA: %{x:,.0f} sqr-m<br>" +
+        "Activity: %{y}<br>" +
+        #"Population: %{marker.size:,}" +
+        "<extra></extra>",
         mode='markers',
         marker=dict(
                 color='Brown',
@@ -570,19 +602,37 @@ with st.expander('Daytime population', expanded=False):
         x=df['Total GFA in 2016'],
         y=df[times],
         name='Total GFA',
-        #yaxis='y2',
+        text=df.index,
+        hovertemplate=
+        "<b>Haxagon %{text}</b><br><br>" +
+        "GFA: %{x:,.0f} sqr-m<br>" +
+        "Activity: %{y}<br>" +
+        #"Population: %{marker.size:,}" +
+        "<extra></extra>",
         mode='markers',
         marker=dict(
                 color='Orange',
                 size=7)
     )
-    scat24 = make_subplots(specs=[[{"secondary_y": True}]],
-                            x_title='GFA',y_title='Activity')
+    
+    scat24 = make_subplots(x_title='GFA in location',y_title='Activity',specs=[[{"secondary_y": True}]])
     scat24.add_trace(traceRES24)
     scat24.add_trace(traceTOT24,secondary_y=False)
+    scat24.update_yaxes(visible=True, showticklabels=False)
+    scat24.add_annotation(text="Low pop  .....  High pop",
+                  xref="paper", yref="paper",
+                  x=0.0, y=0.3, showarrow=False,
+                  textangle=-90)
+    # https://stackoverflow.com/questions/61693014/how-to-hide-plotly-yaxis-title-in-python
+    #scat24.update_layout(yaxis={'title':'Activity', 'visible': True, 'showticklabels': False})
     #scat24.update_layout(xaxis_range=[0,5000)
-    scat24.update_layout(title=f"Correlation on scatter plot at resolution H{level} in {kuntani} for 'Daytime populations' ")
+    scat24.update_layout(title=f"Correlation on scatter plot at resolution H{case_level} in {kuntani} for 'Daytime populations' ")
+    
     st.plotly_chart(scat24, use_container_width=True)
+    source_24h = """
+    Data source: <a href="https://zenodo.org/record/3247564#.ZGxysC9Bzyw" target="_blank">Helsinki Region Travel Time Matrix</a>
+    """
+    st.markdown(source_24h, unsafe_allow_html=True)
     
 
 #footer
