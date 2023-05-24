@@ -505,10 +505,8 @@ with st.expander('Classification', expanded=False):
 with st.expander('Case studies', expanded=False):
     # study level
     case_level = st.radio('Set H3-resolution for case studies',(7,8,9), horizontal=True)
-    if case_level != 9:
-        df = df.h3.h3_to_parent_aggregate(case_level)
-    else:
-        pass
+    # use mygdf which has h10 resolution!
+    df = mygdf.h3.h3_to_parent_aggregate(case_level)
     
     # remove outliers
     df = df.loc[df['Total GFA in 2016'] < df['Total GFA in 2016'].quantile(0.99)]
