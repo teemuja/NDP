@@ -167,7 +167,7 @@ with st.expander('Map', expanded=False):
         mycolor = f'class_gfa{yr}'
         myclass = 'gfa'
 
-    fig = px.choropleth_mapbox(plot,
+    fig_map = px.choropleth_mapbox(plot,
                             geojson=plot.geometry,
                             locations=plot.index,
                             title=f"Zone '{zone}' based on year {year} in resolution H{reso}.",
@@ -186,7 +186,7 @@ with st.expander('Map', expanded=False):
                             height=700
                             )
 
-    fig.update_layout(margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=700,
+    fig_map.update_layout(margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=700,
                                 legend=dict(
                                     yanchor="top",
                                     y=0.97,
@@ -195,7 +195,7 @@ with st.expander('Map', expanded=False):
                                 )
                                 )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig_map, use_container_width=True)
 
     #st.dataframe(plot.drop(columns='geometry'))
 
@@ -278,7 +278,7 @@ def pop_share_plot(df):
     fig.add_traces(go.Scatter(x=df.index, y = df['share_spacious'],name='spacious', mode = 'lines', line=dict(color=linecolors[2])))
     fig.add_traces(go.Scatter(x=df.index, y = df['share_sprawl'],name='sprawl', mode = 'lines', line=dict(color=linecolors[3])))
     fig.add_traces(go.Scatter(x=df.index, y = df['share_less'],name='less', mode = 'lines', line=dict(color=linecolors[4])))
-    fig.update_layout(title_text=f"Population share by pop. density classes (H{reso}).")
+    fig.update_layout(title_text=f"Population share by POP density classes (resolution H{reso}).")
     fig.update_xaxes(title='Year')
     fig.update_yaxes(title='% of total population in class')
     return fig
@@ -291,18 +291,61 @@ def gfa_share_plot(df):
     fig.add_traces(go.Scatter(x=df.index, y = df['share_spacious'],name='spacious', mode = 'lines', line=dict(color=linecolors[2])))
     fig.add_traces(go.Scatter(x=df.index, y = df['share_sprawl'],name='sprawl', mode = 'lines', line=dict(color=linecolors[3])))
     fig.add_traces(go.Scatter(x=df.index, y = df['share_less'],name='less', mode = 'lines', line=dict(color=linecolors[4])))
-    fig.update_layout(title_text=f"Population share by GFA density classes (H{reso}).")
+    fig.update_layout(title_text=f"Population share by GFA density classes (resolution H{reso}).")
     fig.update_xaxes(title='Year')
     fig.update_yaxes(title='% of total population in class')
     return fig
 
 #plots in tabs
-tab1,tab2 =  st.tabs(['In pop density classes','In GFA density classes'])
-with tab1:
-    st.plotly_chart(pop_share_plot(pop_shares), use_container_width=True)
-with tab2:
-    st.plotly_chart(gfa_share_plot(gfa_shares), use_container_width=True)
+tab1,tab2,tab3 =  st.tabs(['In POP density classes','In GFA density classes','PDF download'])
 
+with tab1:
+    fig_pop_share = pop_share_plot(pop_shares)
+    st.plotly_chart(fig_pop_share, use_container_width=True)
+with tab2:
+    fig_gfa_share = gfa_share_plot(gfa_shares)
+    st.plotly_chart(fig_gfa_share, use_container_width=True)
+with tab3:
+    import io
+    @st.cache_data()
+    def gen_pdf(fig):
+        buffer_fig = io.BytesIO()
+        fig.write_image(file=buffer_fig, format="pdf")
+        return buffer_fig
+    
+    pdf_out = None
+    d1,d2 = st.columns([1,2])
+    with d1.form("my_form",clear_on_submit=True):
+        my_sel = st.selectbox('',['Select the graph..','POP density classes','GFA density classes'])
+        if my_sel == 'POP density classes':
+            my_fig = fig_pop_share
+        elif my_sel == 'GFA density classes':
+            my_fig = fig_gfa_share
+        else:
+            my_fig = None
+
+        submitted = st.form_submit_button("Generate PDF")
+
+        if submitted:
+            if my_fig is not None:
+                pdf_out = gen_pdf(my_fig)
+            else:
+                st.warning('Select figure')
+                st.stop()
+
+    # download button must be outside the form
+    if pdf_out is not None:
+        d2.markdown('###')
+        d2.markdown('###')
+        d2.download_button(
+            label="Download pdf",
+            data=pdf_out,
+            file_name="figure_map.pdf",
+            mime="application/pdf",
+            )
+
+
+st.markdown('---')
 selite = """
 <b>Density classification:</b><br>
 <i>

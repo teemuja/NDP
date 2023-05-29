@@ -2,5 +2,6 @@ h3pandas
 streamlit
 plotly
 statsmodels
+kaleido #0.2.1
 osmnx
 momepy

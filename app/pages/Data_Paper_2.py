@@ -43,7 +43,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 header = '<p style="font-family:sans-serif; color:grey; font-size: 12px;">\
-        NDP data paper #2 V0.97\
+        NDP data paper #2 V0.98\
         </p>'
 st.markdown(header, unsafe_allow_html=True)
 # plot size setup
@@ -77,32 +77,36 @@ st.markdown(ingress, unsafe_allow_html=True)
 st.markdown("###")
 # translate dict
 eng_feat = {
-    'kem_2000':'Total GFA in 2000',
-    'askem_2000':'Residential GFA in 2000',
-    'kem_2016':'Total GFA in 2016',
-    'askem_2016':'Residential GFA in 2016',
-    'palv_pien_2000':'One person companies (OPC) in urban amenities in 2000',
-    'palv_suur_2000':'Urban amenities (OPC excluded) in 2000',
-    'kaup_2000':'Wholesale and retail trade in 2000',
-    'pt_sup_2000':'Consumer daily goods and kiosks in 2000',
-    'pt_laaja_2000':'Retail trade in 2000',
-    'palv_pien_2016':'One person companies (OPC) in urban amenities in 2016',
-    'palv_suur_2016':'Urban amenities (OPC excluded) in 2016',
-    'kaup_2016':'Wholesale and retail trade in 2016',
-    'pt_sup_2016':'Consumer daily goods and kiosks in 2016',
-    'pt_laaja_2016':'Retail trade in 2016'
+    'GFAtot_2000':'Total GFA in 2000',
+    'GFAres_2000':'Residential GFA in 2000',
+    'GFAtot_2016':'Total GFA in 2016',
+    'GFAres_2016':'Residential GFA in 2016',
+    'opc_2000':'One person companies (OPC) in urban amenities in 2000',
+    'urban_2000':'Urban amenities (OPC excluded) in 2000',
+    'opc_2016':'One person companies (OPC) in urban amenities in 2016',
+    'urban_2016':'Urban amenities (OPC excluded) in 2016'
 }
 
 @st.cache_data()
 def load_data():
-    path = Path(__file__).parent / 'data/h3_10_pks_corrs.csv'  #'data/h3_10_PKS_kem2_VS_palv.csv'
+    path = Path(__file__).parent / 'data/h3_10_pks_corr.csv'
     with path.open() as f:
-        data = pd.read_csv(f, index_col='h3_10', header=0)#.astype(str)
+        data = pd.read_csv(f, index_col='h3_10', header=0) #.astype(str)
+    # translate columns
+    eng_data = data.rename(columns=eng_feat)
+    return eng_data
+
+@st.cache_data()
+def load_data24():
+    path = Path(__file__).parent / 'data/h3_10_pks_corr24.csv'
+    with path.open() as f:
+        data = pd.read_csv(f, index_col='h3_10', header=0) #.astype(str)
     # translate columns
     eng_data = data.rename(columns=eng_feat)
     return eng_data
 
 gdf = load_data()
+gdf24 = load_data24()
 
 centre_pnos = [
 "Helsinki keskusta - Etu-Töölö",
@@ -133,20 +137,19 @@ s1,s2,s3 = st.columns(3)
 kuntani = s1.selectbox('Select study area',['Helsinki','Espoo','Vantaa','Helsinki centre','Helsinki suburbs','All suburbs'])
 if kuntani == 'Helsinki centre':
     mygdf = gdf.loc[gdf.pno.isin(centre_pnos)]
+    mygdf24 = gdf24.loc[gdf24.pno.isin(centre_pnos)]
 elif kuntani == 'Helsinki suburbs':
     mygdf = gdf.loc[gdf.kunta == 'Helsinki']
     mygdf = mygdf.loc[~mygdf.pno.isin(centre_pnos)]
+    mygdf24 = gdf24.loc[~gdf24.pno.isin(centre_pnos)]
 elif kuntani == 'All suburbs':
     mygdf = gdf.loc[~gdf.pno.isin(centre_pnos)]
+    mygdf24 = gdf24.loc[~gdf24.pno.isin(centre_pnos)]
 else:
     mygdf = gdf.loc[gdf.kunta == kuntani]
+    mygdf24 = gdf24.loc[gdf24.kunta == kuntani]
 
-#rename Nousijamaa col
-mygdf.rename(columns={'Nousijamaa':'Public transit use 2016'}, inplace=True)
-# !!!! drop 'Consumer daily goods and kiosks' untill data fixed !!!!
-mygdf.drop(columns=['Consumer daily goods and kiosks in 2000','Consumer daily goods and kiosks in 2016'], inplace=True)
-
-#q_range = s3.slider(' ',0,100,(0,100),10)
+#q_range = s3.slider(' ',0,100,(0,100),10) 
 # filter accordingly..
 #mygdf = mygdf.loc[mygdf[f'{color}'].astype(int) > mygdf[f'{color}'].astype(int).quantile(q_range[0]/100)] 
 #mygdf = mygdf.loc[mygdf[f'{color}'].astype(int) < mygdf[f'{color}'].astype(int).quantile(q_range[1]/100)]
@@ -178,8 +181,8 @@ with st.expander('Data validation', expanded=False):
         # map plot
         lat = plot.unary_union.centroid.y
         lon = plot.unary_union.centroid.x
-        range_min = plot[color].quantile(0.05)
-        range_max = plot[color].quantile(0.95)
+        range_min = plot[color].min() #.quantile(0.001)
+        range_max = plot[color].max()  #.quantile(0.999)
         fig = px.choropleth_mapbox(plot,
                                 geojson=plot.geometry,
                                 locations=plot.index,
@@ -213,10 +216,7 @@ with st.expander('Data validation', expanded=False):
     df = plot.copy()
     # select feat
     ycols = ['Urban amenities (OPC excluded)',
-            'One person companies (OPC) in urban amenities',
-            #'Consumer daily goods and kiosks',
-            'Retail trade',
-            'Wholesale and retail trade']
+             'One person companies (OPC) in urban amenities']
     x1,y1 = st.columns(2)
     xvalue = x1.selectbox('Choose X axis data',['Residential GFA','Total GFA'])
     yvalue = y1.selectbox('Choose y axis data',ycols)
@@ -329,25 +329,17 @@ def corr_loss(df,h=10,corr_type='year',method='pearson'): # h-value is one more 
         x_list=['Total GFA in 2000',
                 'Residential GFA in 2000']
         y_list=['One person companies (OPC) in urban amenities in 2000',
-                'Urban amenities (OPC excluded) in 2000',
-                'Wholesale and retail trade in 2000',
-                #'Consumer daily goods and kiosks in 2000',
-                'Retail trade in 2000']
+                'Urban amenities (OPC excluded) in 2000']
     elif corr_type == '2016':
         x_list=['Total GFA in 2016',
                 'Residential GFA in 2016']
         y_list=['One person companies (OPC) in urban amenities in 2016',
-                'Urban amenities (OPC excluded) in 2016',
-                #'Consumer daily goods and kiosks in 2016',
-                'Retail trade in 2016']
+                'Urban amenities (OPC excluded) in 2016']
     elif corr_type == 'year':
         x_list=['Total GFA',
                 'Residential GFA']
         y_list=['One person companies (OPC) in urban amenities',
-                'Urban amenities (OPC excluded)',
-                'Wholesale and retail trade',
-                #'Consumer daily goods and kiosks',
-                'Retail trade']
+                'Urban amenities (OPC excluded)']
 
     # prepare corrs    
     frames = []
@@ -379,31 +371,19 @@ facet_feat = {
     'One person companies (OPC) in urban amenities in 2000':'One person companies (OPC) in urban amenities',
     'One person companies (OPC) in urban amenities in 2016':'One person companies (OPC) in urban amenities',
     'Urban amenities (OPC excluded) in 2000':'Urban amenities (OPC excluded)',
-    'Urban amenities (OPC excluded) in 2016':'Urban amenities (OPC excluded)',
-    'Wholesale and retail trade in 2000':'Wholesale and retail trade',
-    'Wholesale and retail trade in 2016':'Wholesale and retail trade',
-    #'Consumer daily goods and kiosks in 2000':'Consumer daily goods and kiosks',
-    #'Consumer daily goods and kiosks in 2016':'Consumer daily goods and kiosks',
-    'Retail trade in 2000':'Retail trade',
-    'Retail trade in 2016':'Retail trade'
+    'Urban amenities (OPC excluded) in 2016':'Urban amenities (OPC excluded)'
 }
 facet_col_list_2000 = [
     'Total GFA in 2000',
     'Residential GFA in 2000',
     'One person companies (OPC) in urban amenities in 2000',
-    'Urban amenities (OPC excluded) in 2000',
-    'Wholesale and retail trade in 2000',
-    #'Consumer daily goods and kiosks in 2000',
-    'Retail trade in 2000'
+    'Urban amenities (OPC excluded) in 2000'
 ]
 facet_col_list_2016 = [
     'Total GFA in 2016',
     'Residential GFA in 2016',
     'One person companies (OPC) in urban amenities in 2016',
-    'Urban amenities (OPC excluded) in 2016',
-    'Wholesale and retail trade in 2016',
-    #'Consumer daily goods and kiosks in 2016',
-    'Retail trade in 2016'
+    'Urban amenities (OPC excluded) in 2016'
 ]
 
 # corrs combined
@@ -435,11 +415,10 @@ except Exception as e:
 # select feat for corrs
 plot_list = corrs.columns.to_list()[:-1]
 my_plot_list = ['Residential GFA VS Urban amenities (OPC excluded)',
-                #'Residential GFA VS Consumer daily goods and kiosks',
-                'Residential GFA VS Retail trade'
+                'Residential GFA VS One person companies (OPC) in urban amenities'
                 ]
-scat_list = st.multiselect('Choose data for the correlation plot', plot_list,default=my_plot_list)
-if len(scat_list) > 0:
+scat_list = my_plot_list #st.multiselect('Choose data for the correlation plot', plot_list,default=my_plot_list, max_selections=2)
+if len(scat_list) == 2:
     scat_list.extend(['year'])
     corr_plot = corrs[corrs.columns.intersection(scat_list)]
 else:
@@ -447,9 +426,9 @@ else:
 
 # plot
 graph_title = kuntani
-fig_corr = px.line(corr_plot,
+fig_corr = px.line(corr_plot,line_dash='variable',line_dash_map={my_plot_list[0]:'solid',my_plot_list[1]:'dash'},
                    labels = {'index':'H3-resolution','value':'Correlation','variable':'Correlation pairs'},
-                   title=f'Correlation loss in {graph_title}', facet_col='year' )
+                   title=f'Correlation loss in {graph_title}', facet_col='year', facet_col_spacing=0.05)
 fig_corr.update_xaxes(autorange="reversed")#, side='top')
 fig_corr['layout'].update(shapes=[{'type': 'line','y0':0.5,'y1': 0.5,'x0':str(corr_plot.index[0]), 
                               'x1':str(corr_plot.index[-1]),'xref':'x1','yref':'y1',
@@ -462,6 +441,14 @@ fig_corr['layout'].update(shapes=[{'type': 'line','y0':0.5,'y1': 0.5,'x0':str(co
 #    fillcolor="white", opacity=0.8,
 #    layer="above", line_width=0,
 #)
+fig_corr.update_layout(#margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=700,
+                legend=dict(
+                    yanchor="top",
+                    y=0.95,
+                    xanchor="left",
+                    x=0.05
+                )
+                )
 graph_place = st.empty()
 fixed = st.checkbox('Use fixed scale')
 if fixed:
@@ -469,6 +456,7 @@ if fixed:
 else:
     minimi = corr_plot.stack().min()
 fig_corr.update_layout(yaxis_range=[minimi,1])
+fig_corr.update_xaxes(type='category')
 #fig_corr.update_layout(legend=dict(orientation="h",yanchor="bottom",y=-0.2,xanchor="left",x=0))
 with graph_place:
     st.plotly_chart(fig_corr, use_container_width=True)
@@ -479,13 +467,13 @@ with st.expander('Classification', expanded=False):
     For used resolutions, see: <a href="https://h3geo.org/docs/core-library/restable/" target="_blank">h3geo.org</a>
 
     **Urban amenities** are all company business space locations which belong
-    to the following finnish TOL-industry classes:  
+    to the following finnish TOL-industry classes (tol95 and tol2008):  
     _Wholesale and retail_  
     _Accomondation and food service activites_  
     _Information and communication_  
     _Financial and insurance activities_  
     _Other service activities_  
-    **Retail trade** refers to the retail classes 52 and 47 accordingly.  
+      
     More info: <a href="https://www.stat.fi/en/luokitukset/toimiala/" target="_blank">Stat.fi</a>
 
     <p style="font-family:sans-serif; color:grey; font-size: 12px;">
@@ -506,11 +494,11 @@ with st.expander('Case studies', expanded=False):
     # study level
     case_level = st.radio('Set H3-resolution for case studies',(7,8,9), horizontal=True)
     # use mygdf which has h10 resolution!
-    df = mygdf.h3.h3_to_parent_aggregate(case_level)
+    df = mygdf24.h3.h3_to_parent_aggregate(case_level).rename(columns={'pub_trans_2016':'Public transit use 2016'})
     
     # remove outliers
-    df = df.loc[df['Total GFA in 2016'] < df['Total GFA in 2016'].quantile(0.99)]
-    df = df.loc[df['Public transit use 2016'] < df['Public transit use 2016'].quantile(0.99)]
+    df = df.loc[df['Total GFA in 2016'] < df['Total GFA in 2016'].quantile(0.999)]
+    df = df.loc[df['Public transit use 2016'] < df['Public transit use 2016'].quantile(0.999)]
 
     st.markdown('---')
     st.subheader('Public transit use 2016')
@@ -548,14 +536,14 @@ with st.expander('Case studies', expanded=False):
                 color='Orange',
                 size=7)
     )
-    scatt = make_subplots(specs=[[{"secondary_y": True}]],
+    scat_pub = make_subplots(specs=[[{"secondary_y": True}]],
                             x_title='GFA in location',y_title='Takeoffs')
-    scatt.add_trace(traceRES)
-    scatt.add_trace(traceTOT,secondary_y=False)
+    scat_pub.add_trace(traceRES)
+    scat_pub.add_trace(traceTOT,secondary_y=False)
     if 'kuntani' not in globals():
         kuntani = 'selected neighborhoods'
-    scatt.update_layout(title=f"Scatter plot on resolution H{case_level} in {kuntani} for 'Public transit use 2016' ")
-    st.plotly_chart(scatt, use_container_width=True)
+    scat_pub.update_layout(title=f"Scatter plot on resolution H{case_level} in {kuntani} for 'Public transit use 2016' ")
+    st.plotly_chart(scat_pub, use_container_width=True)
     pub_expl = """
     Data source: <a href="https://www.avoindata.fi/data/en_GB/dataset/hsl-n-nousijamaarat-pysakeittain" target="_blank">Avoindata.fi</a>
     """
@@ -564,20 +552,22 @@ with st.expander('Case studies', expanded=False):
     st.markdown('---')
     st.subheader('Daytime population')
     # select daytime cols
-    col_list_all = df.drop(columns=['kunta','pno']).columns.to_list()
-    def selectonly(mylist,sel_list):
-        for i in sel_list:
-            mylist = [c for c in mylist if i in c]
-        return mylist
-    
     selectlist = ['WO','SA','SU']
+    
     #df = df.loc[df['Total GFA in 2016'] < df['Total GFA in 2016'].quantile(0.9)]
     wo_24 = df.filter(regex='WO').join(df[['Total GFA in 2016','Residential GFA in 2016']])
     sa_24 = df.filter(regex='SA').join(df[['Total GFA in 2016','Residential GFA in 2016']])
     su_24 = df.filter(regex='SU').join(df[['Total GFA in 2016','Residential GFA in 2016']])
-    #
-    times = wo_24.drop(columns=['Total GFA in 2016','Residential GFA in 2016']).columns.tolist()
-    #time = st.multiselect('Select times', times, default=times)
+
+    # day selector
+    s1,s2 = st.columns(2)
+    day = s1.radio('Select time category',('Working day','Saturday','Sunday'),horizontal=True)
+    if day == 'Working day':
+        times = wo_24.drop(columns=['Total GFA in 2016','Residential GFA in 2016']).columns.tolist()
+    elif day == 'Saturday':
+        times = sa_24.drop(columns=['Total GFA in 2016','Residential GFA in 2016']).columns.tolist()
+    else:
+        times = su_24.drop(columns=['Total GFA in 2016','Residential GFA in 2016']).columns.tolist()
     
     # plots
     traceRES24 = go.Scatter(
@@ -588,7 +578,7 @@ with st.expander('Case studies', expanded=False):
         hovertemplate=
         "<b>Haxagon %{text}</b><br><br>" +
         "GFA: %{x:,.0f} sqr-m<br>" +
-        "Activity: %{y}<br>" +
+        "Daytime pop: %{y}<br>" +
         #"Population: %{marker.size:,}" +
         "<extra></extra>",
         mode='markers',
@@ -604,7 +594,7 @@ with st.expander('Case studies', expanded=False):
         hovertemplate=
         "<b>Haxagon %{text}</b><br><br>" +
         "GFA: %{x:,.0f} sqr-m<br>" +
-        "Activity: %{y}<br>" +
+        "Daytime pop: %{y}<br>" +
         #"Population: %{marker.size:,}" +
         "<extra></extra>",
         mode='markers',
@@ -624,7 +614,7 @@ with st.expander('Case studies', expanded=False):
     # https://stackoverflow.com/questions/61693014/how-to-hide-plotly-yaxis-title-in-python
     #scat24.update_layout(yaxis={'title':'Activity', 'visible': True, 'showticklabels': False})
     #scat24.update_layout(xaxis_range=[0,5000)
-    scat24.update_layout(title=f"Correlation on scatter plot at resolution H{case_level} in {kuntani} for 'Daytime populations' ")
+    scat24.update_layout(title=f"Correlation at resolution H{case_level} in {kuntani} at '{day}' ")
     
     st.plotly_chart(scat24, use_container_width=True)
     source_24h = """
@@ -632,6 +622,48 @@ with st.expander('Case studies', expanded=False):
     """
     st.markdown(source_24h, unsafe_allow_html=True)
     
+    
+with st.expander('PDF downloads', expanded=False):
+    import io
+    @st.cache_data()
+    def gen_pdf(fig):
+        buffer_fig = io.BytesIO()
+        fig.write_image(file=buffer_fig, format="pdf")
+        return buffer_fig
+    
+    pdf_out = None
+    d1,d2 = st.columns([1,2])
+    with d1.form("my_form",clear_on_submit=True):
+        my_sel = st.selectbox('',['Select the graph..','Correlation loss','Public transit case','Daytime pop case'])
+        if my_sel == 'Correlation loss':
+            my_fig = fig_corr
+        elif my_sel == 'Public transit case':
+            my_fig = scat_pub
+        elif my_sel == 'Daytime pop case':
+            my_fig = scat24
+        else:
+            my_fig = None
+
+        submitted = st.form_submit_button("Generate PDF")
+
+        if submitted:
+            if my_fig is not None:
+                pdf_out = gen_pdf(my_fig)
+            else:
+                st.warning('Select figure')
+                st.stop()
+
+    # download button must be outside the form
+    if pdf_out is not None:
+        d2.markdown('###')
+        d2.markdown('###')
+        d2.download_button(
+            label="Download pdf",
+            data=pdf_out,
+            file_name="figure_map.pdf",
+            mime="application/pdf",
+            )
+
 
 #footer
 st.markdown('---')
