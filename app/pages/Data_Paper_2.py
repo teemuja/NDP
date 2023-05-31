@@ -137,13 +137,17 @@ s1,s2,s3 = st.columns(3)
 kuntani = s1.selectbox('Select study area',['Helsinki','Espoo','Vantaa','Helsinki centre','Helsinki suburbs','All suburbs'])
 if kuntani == 'Helsinki centre':
     mygdf = gdf.loc[gdf.pno.isin(centre_pnos)]
+    #for day pop study..
     mygdf24 = gdf24.loc[gdf24.pno.isin(centre_pnos)]
 elif kuntani == 'Helsinki suburbs':
     mygdf = gdf.loc[gdf.kunta == 'Helsinki']
     mygdf = mygdf.loc[~mygdf.pno.isin(centre_pnos)]
-    mygdf24 = gdf24.loc[~gdf24.pno.isin(centre_pnos)]
+    #for day pop study..
+    mygdf24 = gdf24.loc[gdf24.kunta == 'Helsinki']
+    mygdf24 = mygdf24.loc[~mygdf24.pno.isin(centre_pnos)]
 elif kuntani == 'All suburbs':
     mygdf = gdf.loc[~gdf.pno.isin(centre_pnos)]
+    #for day pop study use whole material
     mygdf24 = gdf24.loc[~gdf24.pno.isin(centre_pnos)]
 else:
     mygdf = gdf.loc[gdf.kunta == kuntani]
@@ -475,7 +479,7 @@ with st.expander('Classification', expanded=False):
     _Other service activities_  
       
     More info: <a href="https://www.stat.fi/en/luokitukset/toimiala/" target="_blank">Stat.fi</a>
-
+    OPC = one person companies according the information in national business space location registry (YrTp)
     <p style="font-family:sans-serif; color:grey; font-size: 12px;">
     Original raw data is from
     <a href="https://research.aalto.fi/fi/projects/l%C3%A4hi%C3%B6iden-kehityssuunnat-ja-uudelleenkonseptointi-2020-luvun-segr " target="_blank">Re:Urbia</a>
@@ -494,11 +498,12 @@ with st.expander('Case studies', expanded=False):
     # study level
     case_level = st.radio('Set H3-resolution for case studies',(7,8,9), horizontal=True)
     # use mygdf which has h10 resolution!
-    df = mygdf24.h3.h3_to_parent_aggregate(case_level).rename(columns={'pub_trans_2016':'Public transit use 2016'})
+    df = mygdf24.drop(columns=['kunta','pno'])
+    df = df.h3.h3_to_parent_aggregate(case_level).rename(columns={'pub_trans_2016':'Public transit use 2016'})
     
-    # remove outliers
-    df = df.loc[df['Total GFA in 2016'] < df['Total GFA in 2016'].quantile(0.999)]
-    df = df.loc[df['Public transit use 2016'] < df['Public transit use 2016'].quantile(0.999)]
+    # remove outliers ..use axis range!
+    #df = df.loc[df['Total GFA in 2016'] < df['Total GFA in 2016'].quantile(0.999)]
+    #df = df.loc[df['Public transit use 2016'] < df['Public transit use 2016'].quantile(0.999)]
 
     st.markdown('---')
     st.subheader('Public transit use 2016')
@@ -621,6 +626,7 @@ with st.expander('Case studies', expanded=False):
     Data source: <a href="https://zenodo.org/record/3247564#.ZGxysC9Bzyw" target="_blank">Helsinki Region Travel Time Matrix</a>
     """
     st.markdown(source_24h, unsafe_allow_html=True)
+    
     
     
 with st.expander('PDF downloads', expanded=False):
