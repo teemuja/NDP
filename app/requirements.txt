@@ -3,5 +3,6 @@ streamlit
 plotly
 statsmodels
 kaleido #0.2.1
+fpdf #1.7.2
 osmnx
 momepy

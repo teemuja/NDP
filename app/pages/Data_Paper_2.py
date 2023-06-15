@@ -445,12 +445,12 @@ fig_corr['layout'].update(shapes=[{'type': 'line','y0':0.5,'y1': 0.5,'x0':str(co
 #    fillcolor="white", opacity=0.8,
 #    layer="above", line_width=0,
 #)
-fig_corr.update_layout(#margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=700,
+fig_corr.update_layout(#margin={"r": 50, "t": 75, "l": 20, "b": 20}, height=700,
                 legend=dict(
                     yanchor="top",
-                    y=0.95,
+                    y=-0.15,
                     xanchor="left",
-                    x=0.05
+                    x=-0.0
                 )
                 )
 graph_place = st.empty()
@@ -654,7 +654,17 @@ with st.expander('PDF downloads', expanded=False):
 
         if submitted:
             if my_fig is not None:
-                pdf_out = gen_pdf(my_fig)
+                #update layout for pdf plot
+                my_fig.update_layout(
+                    margin={"r": 100, "t": 100, "l": 100, "b": 100}, height=700,
+                    legend=dict(
+                        yanchor="top",
+                        y=-0.15,
+                        xanchor="left",
+                        x=-0.0
+                    )
+                    )
+                pdf_out = gen_pdf(my_fig) #pdf.generate_pdf_report(my_fig)
             else:
                 st.warning('Select figure')
                 st.stop()
