@@ -431,7 +431,7 @@ else:
 # plot
 graph_title = kuntani
 fig_corr = px.line(corr_plot,line_dash='variable',line_dash_map={my_plot_list[0]:'solid',my_plot_list[1]:'dash'},
-                   labels = {'index':'H3-resolution','value':'Correlation','variable':'Correlation pairs'},
+                   labels = {'index':'H3-resolution','value':'Correlation coefficient','variable':'Correlation pairs'},
                    title=f'Correlation loss in {graph_title}', facet_col='year', facet_col_spacing=0.05)
 fig_corr.update_xaxes(autorange="reversed")#, side='top')
 fig_corr['layout'].update(shapes=[{'type': 'line','y0':0.5,'y1': 0.5,'x0':str(corr_plot.index[0]), 
@@ -445,7 +445,7 @@ fig_corr['layout'].update(shapes=[{'type': 'line','y0':0.5,'y1': 0.5,'x0':str(co
 #    fillcolor="white", opacity=0.8,
 #    layer="above", line_width=0,
 #)
-fig_corr.update_layout(#margin={"r": 50, "t": 75, "l": 20, "b": 20}, height=700,
+fig_corr.update_layout(#margin={"r": 10, "t": 50, "l": 10, "b": 50}, height=700,
                 legend=dict(
                     yanchor="top",
                     y=-0.15,
@@ -477,9 +477,12 @@ with st.expander('Classification', expanded=False):
     _Information and communication_  
     _Financial and insurance activities_  
     _Other service activities_  
+    More info: <a href="https://www.stat.fi/en/luokitukset/toimiala/" target="_blank">Stat.fi</a>  
       
-    More info: <a href="https://www.stat.fi/en/luokitukset/toimiala/" target="_blank">Stat.fi</a>
-    OPC = one person companies according the information in national business space location registry (YrTp)
+    OPC = One Person Companies according to the information in national business space location registry (YrTp)  
+    Correlation values are <a href="https://en.wikipedia.org/wiki/Pearson_correlation_coefficient" target="_blank">Pearson</a> 
+    correlation coefficient (r) -values computed using <a href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.corr.html" target="_blank">Pandas</a> library.  
+
     <p style="font-family:sans-serif; color:grey; font-size: 12px;">
     Original raw data is from
     <a href="https://research.aalto.fi/fi/projects/l%C3%A4hi%C3%B6iden-kehityssuunnat-ja-uudelleenkonseptointi-2020-luvun-segr " target="_blank">Re:Urbia</a>
@@ -634,6 +637,12 @@ with st.expander('PDF downloads', expanded=False):
     @st.cache_data()
     def gen_pdf(fig):
         buffer_fig = io.BytesIO()
+        # https://github.com/plotly/plotly.py/issues/3469
+        temp_fig = px.scatter(x=[0, 1, 2, 3, 4], y=[0, 1, 4, 9, 16])
+        temp_fig.write_image(file=buffer_fig, format="pdf")
+        import time
+        time.sleep(1)
+        # replace temp_fig in buffer
         fig.write_image(file=buffer_fig, format="pdf")
         return buffer_fig
     
@@ -676,7 +685,7 @@ with st.expander('PDF downloads', expanded=False):
         d2.download_button(
             label="Download pdf",
             data=pdf_out,
-            file_name="figure_map.pdf",
+            file_name=f"{my_sel} {graph_title}.pdf",
             mime="application/pdf",
             )
 
