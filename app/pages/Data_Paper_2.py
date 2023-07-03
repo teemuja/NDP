@@ -504,9 +504,77 @@ with st.expander('Case studies', expanded=False):
     df = mygdf24.drop(columns=['kunta','pno'])
     df = df.h3.h3_to_parent_aggregate(case_level).rename(columns={'pub_trans_2016':'Public transit use 2016'})
     
-    # remove outliers ..use axis range!
-    #df = df.loc[df['Total GFA in 2016'] < df['Total GFA in 2016'].quantile(0.999)]
-    #df = df.loc[df['Public transit use 2016'] < df['Public transit use 2016'].quantile(0.999)]
+    st.markdown('---')
+    st.subheader('Daytime population')
+
+    def grouping(df,reg='WO'):
+        dataframe = df.filter(regex=reg)
+        # Rename columns with underscore
+        renamed_columns = []
+        for column in dataframe.columns:
+            if "_" in column:
+                renamed_columns.append(column.split("_")[1])
+            else:
+                renamed_columns.append(column)
+        dataframe.columns = renamed_columns
+
+        # Extract the hour values from the column names
+        hour_values = dataframe.columns.str[1:].astype(int)
+
+        # Group the hour columns into four parts: noon, afternoon, evening, night
+        grouped_data = dataframe.groupby(hour_values // 6, axis=1).median().rename(columns={0:'Night',1:'Noon',2:'Afternoon',3:'Evening'})
+
+        df_out = grouped_data.join(df[['Total GFA in 2016','Residential GFA in 2016']])
+        return df_out
+
+    def generate_scatter_map(dataframe,gfa='Total GFA in 2016',y_max=7000):
+        # Extract selected GFA values for plotting
+        gfa_values = dataframe[gfa]
+
+        # Extract the grouped medians for each day category and time group
+        medians_noon = dataframe['Noon']
+        medians_afternoon = dataframe['Afternoon']
+        medians_evening = dataframe['Evening']
+        medians_night = dataframe['Night']
+        dataframe['All'] = dataframe[['Noon','Afternoon','Evening','Night']].median(axis=1)
+
+        # Create the scatter plot
+        fig = px.scatter(dataframe, x=gfa_values, y=dataframe['All'], trendline="ols", color_discrete_sequence=['grey'])
+        fig.add_scatter(x=gfa_values, y=medians_noon, mode='markers', name='Noon', marker=dict(color='red'))
+        fig.add_scatter(x=gfa_values, y=medians_afternoon, mode='markers', name='Afternoon', marker=dict(color='orange'))
+        fig.add_scatter(x=gfa_values, y=medians_evening, mode='markers', name='Evening', marker=dict(color='skyblue'))
+        fig.add_scatter(x=gfa_values, y=medians_night, mode='markers', name='Night', marker=dict(color='violet', opacity=0.3))
+
+        # Customize the plot layout
+        fig.update_layout(xaxis_title=gfa, yaxis_title='Daytime population medians',yaxis_range=[0,y_max])
+        fig.update_layout(title=f"Correlation at resolution H{case_level} in {kuntani} at '{day}' ")
+        return fig
+
+    # day selector
+    s1,s2,s3 = st.columns(3)
+    day = s1.radio('Select time category',('Working day','Saturday','Sunday'),horizontal=True)
+    gfa_set = s2.radio ('Select GFA',('Residential GFA in 2016','Total GFA in 2016'),horizontal=True)
+    quant = s3.checkbox('Remove high deciles of GFA')
+    if quant:
+        df = df.loc[df['Total GFA in 2016'] < df['Total GFA in 2016'].quantile(0.9)]
+
+    if day == 'Working day':
+        df_for_plot = grouping(df,reg='WO')            
+    elif day == 'Saturday':
+        df_for_plot = grouping(df,reg='SA')
+    else:
+        df_for_plot = grouping(df,reg='SU')
+
+    ymax = df_for_plot.drop(columns=['Residential GFA in 2016','Total GFA in 2016']).to_numpy().max()
+    
+    st.plotly_chart(generate_scatter_map(df_for_plot,gfa=gfa_set,y_max=ymax), use_container_width=True)
+    
+    source_24h = """
+    Data source: <a href="https://zenodo.org/record/3247564#.ZGxysC9Bzyw" target="_blank">Helsinki Region Travel Time Matrix</a>
+    """
+    st.markdown(source_24h, unsafe_allow_html=True)
+    
+    # PUBLIC TRANS
 
     st.markdown('---')
     st.subheader('Public transit use 2016')
@@ -557,80 +625,6 @@ with st.expander('Case studies', expanded=False):
     """
     st.markdown(pub_expl, unsafe_allow_html=True)
 
-    st.markdown('---')
-    st.subheader('Daytime population')
-    # select daytime cols
-    selectlist = ['WO','SA','SU']
-    
-    #df = df.loc[df['Total GFA in 2016'] < df['Total GFA in 2016'].quantile(0.9)]
-    wo_24 = df.filter(regex='WO').join(df[['Total GFA in 2016','Residential GFA in 2016']])
-    sa_24 = df.filter(regex='SA').join(df[['Total GFA in 2016','Residential GFA in 2016']])
-    su_24 = df.filter(regex='SU').join(df[['Total GFA in 2016','Residential GFA in 2016']])
-
-    # day selector
-    s1,s2 = st.columns(2)
-    day = s1.radio('Select time category',('Working day','Saturday','Sunday'),horizontal=True)
-    if day == 'Working day':
-        times = wo_24.drop(columns=['Total GFA in 2016','Residential GFA in 2016']).columns.tolist()
-    elif day == 'Saturday':
-        times = sa_24.drop(columns=['Total GFA in 2016','Residential GFA in 2016']).columns.tolist()
-    else:
-        times = su_24.drop(columns=['Total GFA in 2016','Residential GFA in 2016']).columns.tolist()
-    
-    # plots
-    traceRES24 = go.Scatter(
-        x=df['Residential GFA in 2016'],
-        y=df[times],
-        name='Residential GFA',
-        text=df.index,
-        hovertemplate=
-        "<b>Haxagon %{text}</b><br><br>" +
-        "GFA: %{x:,.0f} sqr-m<br>" +
-        "Daytime pop: %{y}<br>" +
-        #"Population: %{marker.size:,}" +
-        "<extra></extra>",
-        mode='markers',
-        marker=dict(
-                color='Brown',
-                size=7)
-    )
-    traceTOT24 = go.Scatter(
-        x=df['Total GFA in 2016'],
-        y=df[times],
-        name='Total GFA',
-        text=df.index,
-        hovertemplate=
-        "<b>Haxagon %{text}</b><br><br>" +
-        "GFA: %{x:,.0f} sqr-m<br>" +
-        "Daytime pop: %{y}<br>" +
-        #"Population: %{marker.size:,}" +
-        "<extra></extra>",
-        mode='markers',
-        marker=dict(
-                color='Orange',
-                size=7)
-    )
-    
-    scat24 = make_subplots(x_title='GFA in location',y_title='Activity',specs=[[{"secondary_y": True}]])
-    scat24.add_trace(traceRES24)
-    scat24.add_trace(traceTOT24,secondary_y=False)
-    scat24.update_yaxes(visible=True, showticklabels=False)
-    scat24.add_annotation(text="Low pop  .....  High pop",
-                  xref="paper", yref="paper",
-                  x=0.0, y=0.3, showarrow=False,
-                  textangle=-90)
-    # https://stackoverflow.com/questions/61693014/how-to-hide-plotly-yaxis-title-in-python
-    #scat24.update_layout(yaxis={'title':'Activity', 'visible': True, 'showticklabels': False})
-    #scat24.update_layout(xaxis_range=[0,5000)
-    scat24.update_layout(title=f"Correlation at resolution H{case_level} in {kuntani} at '{day}' ")
-    
-    st.plotly_chart(scat24, use_container_width=True)
-    source_24h = """
-    Data source: <a href="https://zenodo.org/record/3247564#.ZGxysC9Bzyw" target="_blank">Helsinki Region Travel Time Matrix</a>
-    """
-    st.markdown(source_24h, unsafe_allow_html=True)
-    
-    
     
 with st.expander('PDF downloads', expanded=False):
     import io
