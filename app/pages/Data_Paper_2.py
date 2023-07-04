@@ -497,7 +497,7 @@ with st.expander('Classification', expanded=False):
 # **Consumer daily goods and kiosks** refers to the TOL-classes 5211+5212(TOL1995) for 2000 data and 4711+4719 (TOL2008) for 2016 data.  
     
 
-with st.expander('Case studies', expanded=False):
+with st.expander('Case studies', expanded=True):
     # study level
     case_level = st.radio('Set H3-resolution for case studies',(7,8,9), horizontal=True)
     # use mygdf which has h10 resolution!
@@ -507,7 +507,7 @@ with st.expander('Case studies', expanded=False):
     st.markdown('---')
     st.subheader('Daytime population')
 
-    def grouping(df,reg='WO'):
+    def grouping(df,reg='WO',values='median'):
         dataframe = df.filter(regex=reg)
         # Rename columns with underscore
         renamed_columns = []
@@ -522,12 +522,17 @@ with st.expander('Case studies', expanded=False):
         hour_values = dataframe.columns.str[1:].astype(int)
 
         # Group the hour columns into four parts: noon, afternoon, evening, night
-        grouped_data = dataframe.groupby(hour_values // 6, axis=1).median().rename(columns={0:'Night',1:'Noon',2:'Afternoon',3:'Evening'})
-
+        if values=='median':
+            grouped_data = dataframe.groupby(hour_values // 6, axis=1).median().rename(columns={0:'Night',1:'Noon',2:'Afternoon',3:'Evening'})
+        elif values=='average':
+            grouped_data = dataframe.groupby(hour_values // 6, axis=1).mean().rename(columns={0:'Night',1:'Noon',2:'Afternoon',3:'Evening'})
+        else:
+            grouped_data = dataframe.groupby(hour_values // 6, axis=1).max().rename(columns={0:'Night',1:'Noon',2:'Afternoon',3:'Evening'})
+        
         df_out = grouped_data.join(df[['Total GFA in 2016','Residential GFA in 2016']])
         return df_out
 
-    def generate_scatter_map(dataframe,gfa='Total GFA in 2016',y_max=7000):
+    def generate_scatter_map(dataframe,title,gfa='Total GFA in 2016',y_max=7000):
         # Extract selected GFA values for plotting
         gfa_values = dataframe[gfa]
 
@@ -539,7 +544,7 @@ with st.expander('Case studies', expanded=False):
         dataframe['All'] = dataframe[['Noon','Afternoon','Evening','Night']].median(axis=1)
 
         # Create the scatter plot
-        fig = px.scatter(dataframe, x=gfa_values, y=dataframe['All'], trendline="ols", color_discrete_sequence=['grey'])
+        fig = px.scatter(dataframe, x=gfa_values, y=dataframe['All'], trendline="ols", color_discrete_sequence=['lightgrey'])
         fig.add_scatter(x=gfa_values, y=medians_noon, mode='markers', name='Noon', marker=dict(color='red'))
         fig.add_scatter(x=gfa_values, y=medians_afternoon, mode='markers', name='Afternoon', marker=dict(color='orange'))
         fig.add_scatter(x=gfa_values, y=medians_evening, mode='markers', name='Evening', marker=dict(color='skyblue'))
@@ -547,27 +552,34 @@ with st.expander('Case studies', expanded=False):
 
         # Customize the plot layout
         fig.update_layout(xaxis_title=gfa, yaxis_title='Daytime population medians',yaxis_range=[0,y_max])
-        fig.update_layout(title=f"Correlation at resolution H{case_level} in {kuntani} at '{day}' ")
+        fig.update_layout(title=title)
         return fig
 
     # day selector
     s1,s2,s3 = st.columns(3)
     day = s1.radio('Select time category',('Working day','Saturday','Sunday'),horizontal=True)
-    gfa_set = s2.radio ('Select GFA',('Residential GFA in 2016','Total GFA in 2016'),horizontal=True)
-    quant = s3.checkbox('Remove high deciles of GFA')
-    if quant:
-        df = df.loc[df['Total GFA in 2016'] < df['Total GFA in 2016'].quantile(0.9)]
+    gfa_set = s2.radio('Select GFA',('Residential GFA in 2016','Total GFA in 2016'),horizontal=True)
+    use_values = s3.radio('Use values',('median','average','max'),horizontal=True)
+    scat_holder = st.empty() #map before quantile set
+    filter = st.checkbox('Remove top deciles of GFA')
+    if filter:
+        df = df.loc[df[gfa_set] < df[gfa_set].quantile(0.9)]
+        mytitle = f"Correlation at resolution H{case_level} in {kuntani} at '{day}' using {use_values} values. (top GFA decile filtered)"
+    else:
+        mytitle = f"Correlation at resolution H{case_level} in {kuntani} at '{day}' using {use_values} values. "
 
     if day == 'Working day':
-        df_for_plot = grouping(df,reg='WO')            
+        df_for_plot = grouping(df,reg='WO',values=use_values)            
     elif day == 'Saturday':
-        df_for_plot = grouping(df,reg='SA')
+        df_for_plot = grouping(df,reg='SA',values=use_values)
     else:
-        df_for_plot = grouping(df,reg='SU')
+        df_for_plot = grouping(df,reg='SU',values=use_values)
 
     ymax = df_for_plot.drop(columns=['Residential GFA in 2016','Total GFA in 2016']).to_numpy().max()
-    
-    st.plotly_chart(generate_scatter_map(df_for_plot,gfa=gfa_set,y_max=ymax), use_container_width=True)
+
+    scat24 = generate_scatter_map(df_for_plot,title=mytitle,gfa=gfa_set,y_max=ymax)
+    with scat_holder:
+        st.plotly_chart(scat24, use_container_width=True)
     
     source_24h = """
     Data source: <a href="https://zenodo.org/record/3247564#.ZGxysC9Bzyw" target="_blank">Helsinki Region Travel Time Matrix</a>
