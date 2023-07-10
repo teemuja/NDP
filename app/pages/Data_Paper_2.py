@@ -531,28 +531,42 @@ with st.expander('Case studies', expanded=True):
         
         df_out = grouped_data.join(df[['Total GFA in 2016','Residential GFA in 2016']])
         return df_out
-
+    
+    @st.cache_data(max_entries=1)
     def generate_scatter_map(dataframe,title,gfa='Total GFA in 2016',y_max=7000):
         # Extract selected GFA values for plotting
         gfa_values = dataframe[gfa]
 
         # Extract the grouped medians for each day category and time group
-        medians_noon = dataframe['Noon']
-        medians_afternoon = dataframe['Afternoon']
-        medians_evening = dataframe['Evening']
-        medians_night = dataframe['Night']
-        dataframe['All'] = dataframe[['Noon','Afternoon','Evening','Night']].median(axis=1)
+        noon = dataframe['Noon']
+        afternoon = dataframe['Afternoon']
+        evening = dataframe['Evening']
+        night = dataframe['Night']
+        dataframe['All'] = dataframe[['Noon','Afternoon','Evening','Night']].mean(axis=1)
+        avg = dataframe['All']
 
         # Create the scatter plot
-        fig = px.scatter(dataframe, x=gfa_values, y=dataframe['All'], trendline="ols", color_discrete_sequence=['lightgrey'])
-        fig.add_scatter(x=gfa_values, y=medians_noon, mode='markers', name='Noon', marker=dict(color='red'))
-        fig.add_scatter(x=gfa_values, y=medians_afternoon, mode='markers', name='Afternoon', marker=dict(color='orange'))
-        fig.add_scatter(x=gfa_values, y=medians_evening, mode='markers', name='Evening', marker=dict(color='skyblue'))
-        fig.add_scatter(x=gfa_values, y=medians_night, mode='markers', name='Night', marker=dict(color='violet', opacity=0.3))
+        fig = px.scatter(dataframe, x=gfa_values, y=avg, trendline="ols", color_discrete_sequence=['lightgrey'], opacity=0.5)
+        fig.add_scatter(x=gfa_values, y=noon, mode='markers', name='Noon', marker=dict(color='red'))
+        fig.add_scatter(x=gfa_values, y=afternoon, mode='markers', name='Afternoon', marker=dict(color='orange'))
+        fig.add_scatter(x=gfa_values, y=evening, mode='markers', name='Evening', marker=dict(color='skyblue'))
+        fig.add_scatter(x=gfa_values, y=night, mode='markers', name='Night', marker=dict(color='violet', opacity=0.5))
+        fig.data = fig.data[::-1]
 
         # Customize the plot layout
-        fig.update_layout(xaxis_title=gfa, yaxis_title='Daytime population medians',yaxis_range=[0,y_max])
+        fig.update_layout(xaxis_title=gfa, yaxis_title='Daytime population',yaxis_range=[0,y_max])
         fig.update_layout(title=title)
+        fig.update_layout(legend=dict(orientation="h",x=0.05))
+        fig.update_layout(legend_traceorder="reversed")
+        fig.add_annotation(text='OLS-Trendline of average values in grey', 
+                    align='left',
+                    showarrow=False,
+                    xref='paper',
+                    yref='paper',
+                    x=0.05,
+                    y=-0.07,
+                    #bordercolor='black', borderwidth=1
+                    )
         return fig
 
     # day selector
@@ -564,9 +578,9 @@ with st.expander('Case studies', expanded=True):
     filter = st.checkbox('Remove top deciles of GFA')
     if filter:
         df = df.loc[df[gfa_set] < df[gfa_set].quantile(0.9)]
-        mytitle = f"Correlation at resolution H{case_level} in {kuntani} at '{day}' using {use_values} values. (top GFA decile filtered)"
+        mytitle = f"{kuntani}: Resolution H{case_level} at '{day}' using '{use_values}' values. (high GFAs filtered)"
     else:
-        mytitle = f"Correlation at resolution H{case_level} in {kuntani} at '{day}' using {use_values} values. "
+        mytitle = f"{kuntani}: Resolution H{case_level} at '{day}' using '{use_values}' values. "
 
     if day == 'Working day':
         df_for_plot = grouping(df,reg='WO',values=use_values)            
@@ -640,7 +654,6 @@ with st.expander('Case studies', expanded=True):
     
 with st.expander('PDF downloads', expanded=False):
     import io
-    @st.cache_data()
     def gen_pdf(fig):
         buffer_fig = io.BytesIO()
         # https://github.com/plotly/plotly.py/issues/3469
@@ -648,53 +661,41 @@ with st.expander('PDF downloads', expanded=False):
         temp_fig.write_image(file=buffer_fig, format="pdf")
         import time
         time.sleep(1)
-        # replace temp_fig in buffer
-        fig.write_image(file=buffer_fig, format="pdf")
-        return buffer_fig
-    
-    pdf_out = None
-    d1,d2 = st.columns([1,2])
-    with d1.form("my_form",clear_on_submit=True):
-        my_sel = st.selectbox('',['Select the graph..','Correlation loss','Public transit case','Daytime pop case'])
-        if my_sel == 'Correlation loss':
-            my_fig = fig_corr
-        elif my_sel == 'Public transit case':
-            my_fig = scat_pub
-        elif my_sel == 'Daytime pop case':
-            my_fig = scat24
-        else:
-            my_fig = None
-
-        submitted = st.form_submit_button("Generate PDF")
-
-        if submitted:
-            if my_fig is not None:
-                #update layout for pdf plot
-                my_fig.update_layout(
+        # adjust layout
+        fig.update_layout(
                     margin={"r": 100, "t": 100, "l": 100, "b": 100}, height=700,
                     legend=dict(
                         yanchor="top",
                         y=-0.15,
                         xanchor="left",
                         x=-0.0
+                        )
                     )
-                    )
-                pdf_out = gen_pdf(my_fig) #pdf.generate_pdf_report(my_fig)
-            else:
-                st.warning('Select figure')
-                st.stop()
-
-    # download button must be outside the form
-    if pdf_out is not None:
-        d2.markdown('###')
-        d2.markdown('###')
-        d2.download_button(
-            label="Download pdf",
-            data=pdf_out,
-            file_name=f"{my_sel} {graph_title}.pdf",
-            mime="application/pdf",
-            )
-
+        # replace temp_fig in buffer
+        fig.write_image(file=buffer_fig, format="pdf")
+        return buffer_fig
+    
+    pdf_out = None
+    d1,d2 = st.columns([1,2])
+    #with d1.form("my_form",clear_on_submit=True):
+    my_sel = d1.selectbox('',['Generate pdf from..','Correlation loss','Daytime population','Public transit'])
+    if my_sel != 'Generate pdf from..':
+        if my_sel == 'Correlation loss':
+            my_fig = fig_corr
+        elif my_sel == 'Public transit':
+            my_fig = scat_pub
+        elif my_sel == 'Daytime population':
+            my_fig = scat24
+            
+        with st.spinner():
+            pdf_out = gen_pdf(my_fig)
+            d2.download_button(
+                label="Download pdf",
+                data=pdf_out,
+                file_name=f"{my_sel} {graph_title}.pdf",
+                mime="application/pdf",
+                )
+    
 
 #footer
 st.markdown('---')
