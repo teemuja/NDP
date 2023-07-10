@@ -18,7 +18,7 @@ button[title="View fullscreen"]{
 #from streamlit_extras.app_logo import add_logo #https://extras.streamlit.app
 #add_logo('utils/NDP_150.png',height=120)
 from PIL import Image
-image = Image.open('utils/NDP_500.png')
+image = Image.open('NDP_500.png')
 l1,l2 =st.columns([1,5])
 l1.image(image,use_column_width='auto')
 

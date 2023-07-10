@@ -465,47 +465,18 @@ fig_corr.update_xaxes(type='category')
 with graph_place:
     st.plotly_chart(fig_corr, use_container_width=True)
 
+st.markdown('###')
 
-with st.expander('Classification', expanded=False):       
-    class_expl = """
-    For used resolutions, see: <a href="https://h3geo.org/docs/core-library/restable/" target="_blank">h3geo.org</a>
+# DAYTIME POP STUDY
+st.subheader('Daytime population study')
+tab1,tab2 = st.tabs(['Scatter plot','Trendline data'])
 
-    **Urban amenities** are all company business space locations which belong
-    to the following finnish TOL-industry classes (tol95 and tol2008):  
-    _Wholesale and retail_  
-    _Accomondation and food service activites_  
-    _Information and communication_  
-    _Financial and insurance activities_  
-    _Other service activities_  
-    More info: <a href="https://www.stat.fi/en/luokitukset/toimiala/" target="_blank">Stat.fi</a>  
-      
-    OPC = One Person Companies according to the information in national business space location registry (YrTp)  
-    Correlation values are <a href="https://en.wikipedia.org/wiki/Pearson_correlation_coefficient" target="_blank">Pearson</a> 
-    correlation coefficient (r) -values computed using <a href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.corr.html" target="_blank">Pandas</a> library.  
-
-    <p style="font-family:sans-serif; color:grey; font-size: 12px;">
-    Original raw data is from
-    <a href="https://research.aalto.fi/fi/projects/l%C3%A4hi%C3%B6iden-kehityssuunnat-ja-uudelleenkonseptointi-2020-luvun-segr " target="_blank">Re:Urbia</a>
-    -research project data retrieved from the data products "SeutuCD 2002" and "SeutuCD 2018" by Statistical Finland. 
-    Data for company facilities in SeutuCD -products are two years older than the publishing year of the product while data for buildings is roughly one year old.  
-    Despite this small timespan inconsistency building data is treated as the data for the companies. 
-    The construction which adds a bit of gross floor area in some neighbourhoods within one year of time is analysed to be not relevant in amount for the validity issue in the scope of the study. 
-    Based on this alignment the data paper analyze the “eras” 2000 and 2016.
-    """
-    st.markdown(class_expl, unsafe_allow_html=True)
-
-# **Consumer daily goods and kiosks** refers to the TOL-classes 5211+5212(TOL1995) for 2000 data and 4711+4719 (TOL2008) for 2016 data.  
-    
-
-with st.expander('Case studies', expanded=True):
+with tab1:
     # study level
-    case_level = st.radio('Set H3-resolution for case studies',(7,8,9), horizontal=True)
+    case_level = st.radio('Set H3-resolution for study',(7,8,9), horizontal=True)
     # use mygdf which has h10 resolution!
     df = mygdf24.drop(columns=['kunta','pno'])
     df = df.h3.h3_to_parent_aggregate(case_level).rename(columns={'pub_trans_2016':'Public transit use 2016'})
-    
-    st.markdown('---')
-    st.subheader('Daytime population')
 
     def grouping(df,reg='WO',values='median'):
         dataframe = df.filter(regex=reg)
@@ -551,14 +522,19 @@ with st.expander('Case studies', expanded=True):
         fig.add_scatter(x=gfa_values, y=afternoon, mode='markers', name='Afternoon', marker=dict(color='orange'))
         fig.add_scatter(x=gfa_values, y=evening, mode='markers', name='Evening', marker=dict(color='skyblue'))
         fig.add_scatter(x=gfa_values, y=night, mode='markers', name='Night', marker=dict(color='violet', opacity=0.5))
+        # invert plot order
         fig.data = fig.data[::-1]
 
+        #trendline
+        trendline_res = px.get_trendline_results(fig)
+        summary = trendline_res.iloc[0]["px_fit_results"].summary()
+        coef = round(px.get_trendline_results(fig).px_fit_results.iloc[0].rsquared,2)
+
         # Customize the plot layout
-        fig.update_layout(xaxis_title=gfa, yaxis_title='Daytime population',yaxis_range=[0,y_max])
+        fig.update_layout(xaxis_title=f'{gfa[:-8]} in location', yaxis_title='Daytime population',yaxis_range=[0,y_max],legend_traceorder="reversed")
         fig.update_layout(title=title)
         fig.update_layout(legend=dict(orientation="h",x=0.05))
-        fig.update_layout(legend_traceorder="reversed")
-        fig.add_annotation(text='OLS-Trendline of average values in grey', 
+        fig.add_annotation(text=f'OLS-Trendline of average values in grey (R-squared coef: {coef})',
                     align='left',
                     showarrow=False,
                     xref='paper',
@@ -567,7 +543,7 @@ with st.expander('Case studies', expanded=True):
                     y=-0.07,
                     #bordercolor='black', borderwidth=1
                     )
-        return fig
+        return fig,summary
 
     # day selector
     s1,s2,s3 = st.columns(3)
@@ -575,7 +551,7 @@ with st.expander('Case studies', expanded=True):
     gfa_set = s2.radio('Select GFA',('Residential GFA in 2016','Total GFA in 2016'),horizontal=True)
     use_values = s3.radio('Use values',('median','average','max'),horizontal=True)
     scat_holder = st.empty() #map before quantile set
-    filter = st.checkbox('Remove top deciles of GFA')
+    filter = st.checkbox('Remove locations of top decile GFA')
     if filter:
         df = df.loc[df[gfa_set] < df[gfa_set].quantile(0.9)]
         mytitle = f"{kuntani}: Resolution H{case_level} at '{day}' using '{use_values}' values. (high GFAs filtered)"
@@ -591,7 +567,8 @@ with st.expander('Case studies', expanded=True):
 
     ymax = df_for_plot.drop(columns=['Residential GFA in 2016','Total GFA in 2016']).to_numpy().max()
 
-    scat24 = generate_scatter_map(df_for_plot,title=mytitle,gfa=gfa_set,y_max=ymax)
+    scat24,summary = generate_scatter_map(df_for_plot,title=mytitle,gfa=gfa_set,y_max=ymax)
+
     with scat_holder:
         st.plotly_chart(scat24, use_container_width=True)
     
@@ -599,59 +576,12 @@ with st.expander('Case studies', expanded=True):
     Data source: <a href="https://zenodo.org/record/3247564#.ZGxysC9Bzyw" target="_blank">Helsinki Region Travel Time Matrix</a>
     """
     st.markdown(source_24h, unsafe_allow_html=True)
-    
-    # PUBLIC TRANS
 
-    st.markdown('---')
-    st.subheader('Public transit use 2016')
-    # plots
-    traceRES = go.Scatter(
-        x=df['Residential GFA in 2016'],
-        y=df['Public transit use 2016'],
-        name='Residential GFA',
-        text=df.index,
-        hovertemplate=
-        "<b>Haxagon %{text}</b><br><br>" +
-        "GFA: %{x:,.0f} sqr-m<br>" +
-        "Takeoffs: %{y}<br>" +
-        #"Population: %{marker.size:,}" +
-        "<extra></extra>",
-        mode='markers',
-        marker=dict(
-                color='Brown',
-                size=7)
-    )
-    traceTOT = go.Scatter(
-        x=df['Total GFA in 2016'],
-        y=df['Public transit use 2016'],
-        name='Total GFA',
-        text=df.index,
-        hovertemplate=
-        "<b>Haxagon %{text}</b><br><br>" +
-        "GFA: %{x:,.0f} sqr-m<br>" +
-        "Takeoffs: %{y}<br>" +
-        #"Population: %{marker.size:,}" +
-        "<extra></extra>",
-        yaxis='y2',
-        mode='markers',
-        marker=dict(
-                color='Orange',
-                size=7)
-    )
-    scat_pub = make_subplots(specs=[[{"secondary_y": True}]],
-                            x_title='GFA in location',y_title='Takeoffs')
-    scat_pub.add_trace(traceRES)
-    scat_pub.add_trace(traceTOT,secondary_y=False)
-    if 'kuntani' not in globals():
-        kuntani = 'selected neighborhoods'
-    scat_pub.update_layout(title=f"Scatter plot on resolution H{case_level} in {kuntani} for 'Public transit use 2016' ")
-    st.plotly_chart(scat_pub, use_container_width=True)
-    pub_expl = """
-    Data source: <a href="https://www.avoindata.fi/data/en_GB/dataset/hsl-n-nousijamaarat-pysakeittain" target="_blank">Avoindata.fi</a>
-    """
-    st.markdown(pub_expl, unsafe_allow_html=True)
+with tab2:
+    summary
+    st.markdown('###')
 
-    
+st.markdown('---')
 with st.expander('PDF downloads', expanded=False):
     import io
     def gen_pdf(fig):
@@ -678,24 +608,50 @@ with st.expander('PDF downloads', expanded=False):
     pdf_out = None
     d1,d2 = st.columns([1,2])
     #with d1.form("my_form",clear_on_submit=True):
-    my_sel = d1.selectbox('',['Generate pdf from..','Correlation loss','Daytime population','Public transit'])
+    my_sel = d1.selectbox('',['Generate pdf from..','Correlation loss','Daytime population'])
     if my_sel != 'Generate pdf from..':
         if my_sel == 'Correlation loss':
             my_fig = fig_corr
-        elif my_sel == 'Public transit':
-            my_fig = scat_pub
         elif my_sel == 'Daytime population':
             my_fig = scat24
             
         with st.spinner():
             pdf_out = gen_pdf(my_fig)
-            d2.download_button(
+            d1.markdown('###')
+            d1.download_button(
                 label="Download pdf",
                 data=pdf_out,
-                file_name=f"{my_sel} {graph_title}.pdf",
+                file_name=f"{my_sel}_{graph_title}_H{case_level}.pdf",
                 mime="application/pdf",
                 )
-    
+
+with st.expander('Classification', expanded=False):       
+    class_expl = """
+    For used resolutions, see: <a href="https://h3geo.org/docs/core-library/restable/" target="_blank">h3geo.org</a>
+
+    **Urban amenities** are all company business space locations which belong
+    to the following finnish TOL-industry classes (tol95 and tol2008):  
+    _Wholesale and retail_  
+    _Accomondation and food service activites_  
+    _Information and communication_  
+    _Financial and insurance activities_  
+    _Other service activities_  
+    More info: <a href="https://www.stat.fi/en/luokitukset/toimiala/" target="_blank">Stat.fi</a>  
+      
+    OPC = One Person Companies according to the information in national business space location registry (YrTp)  
+    Correlation values are <a href="https://en.wikipedia.org/wiki/Pearson_correlation_coefficient" target="_blank">Pearson</a> 
+    correlation coefficient (r) -values computed using <a href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.corr.html" target="_blank">Pandas</a> library.  
+
+    <p style="font-family:sans-serif; color:grey; font-size: 12px;">
+    Original raw data is from
+    <a href="https://research.aalto.fi/fi/projects/l%C3%A4hi%C3%B6iden-kehityssuunnat-ja-uudelleenkonseptointi-2020-luvun-segr " target="_blank">Re:Urbia</a>
+    -research project data retrieved from the data products "SeutuCD 2002" and "SeutuCD 2018" by Statistical Finland. 
+    Data for company facilities in SeutuCD -products are two years older than the publishing year of the product while data for buildings is roughly one year old.  
+    Despite this small timespan inconsistency building data is treated as the data for the companies. 
+    The construction which adds a bit of gross floor area in some neighbourhoods within one year of time is analysed to be not relevant in amount for the validity issue in the scope of the study. 
+    Based on this alignment the data paper analyze the “eras” 2000 and 2016.
+    """
+    st.markdown(class_expl, unsafe_allow_html=True)
 
 #footer
 st.markdown('---')
