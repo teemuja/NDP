@@ -573,7 +573,7 @@ with tab1:
         st.plotly_chart(scat24, use_container_width=True)
     
     source_24h = """
-    Data source: <a href="https://zenodo.org/record/3247564#.ZGxysC9Bzyw" target="_blank">Helsinki Region Travel Time Matrix</a>
+    Data source: <a href="https://zenodo.org/record/4724389" target="_blank">A 24-hour dynamic population distribution dataset based on mobile phone data from Helsinki Metropolitan Area, Finland</a>
     """
     st.markdown(source_24h, unsafe_allow_html=True)
 
