@@ -162,7 +162,8 @@ else:
 with st.expander('Data validation', expanded=False):
     #
     mapplace = st.empty()
-    m1,m2 = st.columns(2)
+
+    m1,m2,m3 = st.columns(3)
     
     # func to purge col names by characters in them
     col_list_all = mygdf.drop(columns=['kunta','pno']).columns.to_list()
@@ -207,6 +208,11 @@ with st.expander('Data validation', expanded=False):
         fig.update_layout(coloraxis_showscale=False)
         with mapplace:
             st.plotly_chart(fig, use_container_width=True)
+
+        # cell area info in column 3
+        avg_cell_area = round(plot.h3.cell_area()['h3_cell_area'].mean(),3)
+        m3.markdown('###')
+        m3.markdown(f'Avg. cell area in H{level}: **{avg_cell_area} km²**')
     else:
         st.stop()
     
@@ -551,10 +557,13 @@ with tab1:
     gfa_set = s2.radio('Select GFA',('Residential GFA in 2016','Total GFA in 2016'),horizontal=True)
     use_values = s3.radio('Use values',('median','average','max'),horizontal=True)
     scat_holder = st.empty() #map before quantile set
-    filter = st.checkbox('Remove locations of top decile GFA')
-    if filter:
-        df = df.loc[df[gfa_set] < df[gfa_set].quantile(0.9)]
-        mytitle = f"{kuntani}: Resolution H{case_level} at '{day}' using '{use_values}' values. (high GFAs filtered)"
+    filter = st.radio('Filter top decile GFA',('None','Residential GFA in 2016','Total GFA in 2016'),horizontal=True)
+    if filter == 'Total GFA in 2016':
+        df = df.loc[df['Total GFA in 2016'] < df['Total GFA in 2016'].quantile(0.9)]
+        mytitle = f"{kuntani}: Resolution H{case_level} at '{day}' using '{use_values}' values. (high total GFA locations filtered)"
+    elif filter == 'Total GFA in 2016':
+        df = df.loc[df['Residential GFA in 2016'] < df['Residential GFA in 2016'].quantile(0.9)]
+        mytitle = f"{kuntani}: Resolution H{case_level} at '{day}' using '{use_values}' values. (high res. GFA locations filtered)"
     else:
         mytitle = f"{kuntani}: Resolution H{case_level} at '{day}' using '{use_values}' values. "
 
