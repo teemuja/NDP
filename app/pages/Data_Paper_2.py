@@ -43,7 +43,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 header = '<p style="font-family:sans-serif; color:grey; font-size: 12px;">\
-        NDP data paper #2 V0.98\
+        NDP data paper #2 V1.2\
         </p>'
 st.markdown(header, unsafe_allow_html=True)
 # plot size setup
@@ -66,14 +66,11 @@ st.markdown("----")
 # content
 st.title("Data Paper #2")
 st.subheader("Correlation between urban density and amenities")
-ingress = '''
-<p style="font-family:sans-serif; color:Black; font-size: 14px;">
-This data paper visualise the change in correlation between urban density and urban amenities.
-Research quest here is to see how an often used argument of positive density impact on local amenities in
-urban planning works in different geographical scales.
-</p>
-'''
-st.markdown(ingress, unsafe_allow_html=True)
+st.markdown('This data paper visualise the change in correlation between _**urban density, amenities and daytime population**_. '
+            'Research quest here is to see how typical urban design argument of positive density impact on local amenities and livability works in different geographical scales.'
+            )
+#ingress, unsafe_allow_html=True)
+            
 st.markdown("###")
 # translate dict
 eng_feat = {
@@ -158,8 +155,13 @@ else:
 #mygdf = mygdf.loc[mygdf[f'{color}'].astype(int) > mygdf[f'{color}'].astype(int).quantile(q_range[0]/100)] 
 #mygdf = mygdf.loc[mygdf[f'{color}'].astype(int) < mygdf[f'{color}'].astype(int).quantile(q_range[1]/100)]
 
+# the graph
+st.markdown('---')
+st.subheader('Urban amenity study')
+graph_place = st.empty()
+
 # the checks
-with st.expander('Data validation', expanded=False):
+with st.expander('Sample checks', expanded=False):
     #
     mapplace = st.empty()
 
@@ -219,8 +221,7 @@ with st.expander('Data validation', expanded=False):
     st.markdown('---')
     st.subheader('Sample checks')
     # stat checks here
-    my_method = 'pearson' #st.radio('Correlation method',('pearson','spearman'))
-#with st.expander('Statistical checks', expanded=False):
+    my_method = st.radio('Correlation method',('pearson','spearman'))
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
     df = plot.copy()
@@ -331,8 +332,36 @@ with st.expander('Data validation', expanded=False):
             st.warning(e)
             pass
 
-# corr graphs
-st.subheader('Correlation loss')
+    st.markdown('---')
+    # calssifications        
+    class_expl = """
+    For used resolutions, see: <a href="https://h3geo.org/docs/core-library/restable/" target="_blank">h3geo.org</a>
+
+    **Urban amenities** are all company business space locations which belong
+    to the following finnish TOL-industry classes (tol95 and tol2008):  
+    _Wholesale and retail_  
+    _Accomondation and food service activites_  
+    _Information and communication_  
+    _Financial and insurance activities_  
+    _Other service activities_  
+    More info: <a href="https://www.stat.fi/en/luokitukset/toimiala/" target="_blank">Stat.fi</a>  
+      
+    OPC = One Person Companies according to the information in national business space location registry (YrTp)  
+    Correlation values are <a href="https://en.wikipedia.org/wiki/Pearson_correlation_coefficient" target="_blank">Pearson</a> 
+    correlation coefficient (r) -values computed using <a href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.corr.html" target="_blank">Pandas</a> library.  
+
+    <p style="font-family:sans-serif; color:grey; font-size: 12px;">
+    Original raw data is from
+    <a href="https://research.aalto.fi/fi/projects/l%C3%A4hi%C3%B6iden-kehityssuunnat-ja-uudelleenkonseptointi-2020-luvun-segr " target="_blank">Re:Urbia</a>
+    -research project data retrieved from the data products "SeutuCD 2002" and "SeutuCD 2018" by Statistical Finland. 
+    Data for company facilities in SeutuCD -products are two years older than the publishing year of the product while data for buildings is roughly one year old.  
+    Despite this small timespan inconsistency building data is treated as the data for the companies. 
+    The construction which adds a bit of gross floor area in some neighbourhoods within one year of time is analysed to be not relevant in amount for the validity issue in the scope of the study. 
+    Based on this alignment the data paper analyze the “eras” 2000 and 2016.
+    """
+    st.markdown(class_expl, unsafe_allow_html=True)
+
+# ----------------------------------- corr graphs --------------------------------
 
 def corr_loss(df,h=10,corr_type='year',method='pearson'): # h-value is one more than generated corr-levels
     if corr_type == '2000':
@@ -361,9 +390,25 @@ def corr_loss(df,h=10,corr_type='year',method='pearson'): # h-value is one more 
                 # apply box cox transform to values..
                 if method == 'pearson':
                     # use only positive values as boxcox applied..
-                    df_i = df_i[(df_i[df_i.columns] > 0).all(axis=1)]
-                    df_i[x] = boxcox(df_i[x])[0] #boxcox return two: transformed data and lambda value
-                    df_i[y] = boxcox(df_i[y])[0]
+                    #df_i = df_i[(df_i[df_i.columns] > 0).all(axis=1)]
+                    #df_i[x] = boxcox(df_i[x])[0] #as boxcox return two: transformed data and lambda value
+                    #df_i[y] = boxcox(df_i[y])[0]
+
+                    # Ensure values are positive before applying boxcox for x
+                    non_positive_values_x = df_i[df_i[x] <= 0]
+                    if not non_positive_values_x.empty:
+                        df_i[x] = df_i[x].clip(lower=0.01)
+                        df_i[x] = boxcox(df_i[x])[0]
+                    else:
+                        df_i[x] = boxcox(df_i[x])[0]
+                    # Ensure values are positive before applying boxcox for y
+                    non_positive_values_y = df_i[df_i[y] <= 0]
+                    if not non_positive_values_y.empty:
+                        df_i[y] = df_i[y].clip(lower=0.01)
+                        df_i[y] = boxcox(df_i[y])[0]
+                    else:
+                        df_i[y] = boxcox(df_i[y])[0]
+
                 # use as transformed
                 corr_i = df_i.corr(method=method)[x][y]
                 corr_list.append(corr_i)
@@ -397,9 +442,9 @@ facet_col_list_2016 = [
 ]
 
 # corrs combined
-def corrs_combine(mygdf):
+def corrs_combine(mygdf,ref_gdf):
     # all subs for H6 reference values for all 
-    allsub = gdf #.loc[~gdf.pno.isin(centre_pnos)]
+    allsub = ref_gdf #.loc[~gdf.pno.isin(centre_pnos)]
     # 2000
     corr_2000 = corr_loss(mygdf[facet_col_list_2000].rename(columns=facet_feat),corr_type='year',method=my_method)
     corr_2000_all = corr_loss(allsub[facet_col_list_2000].rename(columns=facet_feat),corr_type='year',method=my_method)
@@ -417,7 +462,7 @@ def corrs_combine(mygdf):
 # do the corrs
 df4corr = mygdf[feat_list] # use only feat_cols
 try:
-    corrs = corrs_combine(mygdf=df4corr)
+    corrs = corrs_combine(mygdf=df4corr,ref_gdf=gdf) # all subs for H6 reference values for all
 except Exception as e:
     st.warning(f"Issue occured with BoxCox transformation: {e}")
     st.stop()
@@ -434,11 +479,13 @@ if len(scat_list) == 2:
 else:
     st.stop()
 
-# plot
+# plotter
 graph_title = kuntani
+
 fig_corr = px.line(corr_plot,line_dash='variable',line_dash_map={my_plot_list[0]:'solid',my_plot_list[1]:'dash'},
-                   labels = {'index':'H3-resolution','value':'Correlation coefficient','variable':'Correlation pairs'},
-                   title=f'Correlation loss in {graph_title}', facet_col='year', facet_col_spacing=0.05)
+                   labels = {'index':'Spatial resolution','value':'Correlation coefficient','variable':'Correlation pairs'},
+                   title=f'Correlation loss in {graph_title} in urban amenities', facet_col='year', facet_col_spacing=0.05)
+
 fig_corr.update_xaxes(autorange="reversed")#, side='top')
 fig_corr['layout'].update(shapes=[{'type': 'line','y0':0.5,'y1': 0.5,'x0':str(corr_plot.index[0]), 
                               'x1':str(corr_plot.index[-1]),'xref':'x1','yref':'y1',
@@ -459,105 +506,52 @@ fig_corr.update_layout(#margin={"r": 10, "t": 50, "l": 10, "b": 50}, height=700,
                     x=-0.0
                 )
                 )
-graph_place = st.empty()
-fixed = st.checkbox('Use fixed scale')
-if fixed:
-    minimi = -0.5
-else:
-    minimi = corr_plot.stack().min()
+# Extract unique year values directly from the dataframe
+year_vals = corr_plot['year'].unique()
+new_labels = {f"year={y}": str(y) for y in year_vals}
+fig_corr.for_each_annotation(lambda a: a.update(text=new_labels.get(a.text, a.text)))
+
+minimi = -0.25
+#minimi = corr_plot.stack().min()
 fig_corr.update_layout(yaxis_range=[minimi,1])
 fig_corr.update_xaxes(type='category')
 #fig_corr.update_layout(legend=dict(orientation="h",yanchor="bottom",y=-0.2,xanchor="left",x=0))
+
 with graph_place:
     st.plotly_chart(fig_corr, use_container_width=True)
 
 st.markdown('###')
 
-# DAYTIME POP STUDY
+st.markdown('---')
+
+
+# ------------------------------------DAYTIME POP STUDY -------------------------------------------------
 st.subheader('Daytime population study')
-tab1,tab2 = st.tabs(['Scatter plot','Trendline data'])
 
-with tab1:
-    # study level
-    case_level = st.radio('Set H3-resolution for study',(7,8,9), horizontal=True)
+# selectors
+s1,s2,s3 = st.columns(3)
+day = s1.radio('Select time category',('Working day','Saturday','Sunday'),horizontal=True)
+use_values = s2.radio('Use values',('median','average','max'),horizontal=True)
+filter = s3.radio('Filter top decile GFA',('None','Residential GFA','Total GFA'),horizontal=True)
+
+# the corr plot
+corr_holder = st.empty()
+
+#the scatter section
+with st.expander('Sample checks', expanded=False):
+    sc1,sc2 = st.columns(2)
+    gfa_set = sc1.radio('Select GFA for plot',('Residential GFA in 2016','Total GFA in 2016'),horizontal=True)
+    case_level = sc2.radio('Set H3-resolution for plot',(7,8,9), horizontal=True)
+
     # use mygdf which has h10 resolution!
-    df = mygdf24.drop(columns=['kunta','pno'])
-    df = df.h3.h3_to_parent_aggregate(case_level).rename(columns={'pub_trans_2016':'Public transit use 2016'})
+    df_h10 = mygdf24.drop(columns=['kunta','pno'])
 
-    def grouping(df,reg='WO',values='median'):
-        dataframe = df.filter(regex=reg)
-        # Rename columns with underscore
-        renamed_columns = []
-        for column in dataframe.columns:
-            if "_" in column:
-                renamed_columns.append(column.split("_")[1])
-            else:
-                renamed_columns.append(column)
-        dataframe.columns = renamed_columns
-
-        # Extract the hour values from the column names
-        hour_values = dataframe.columns.str[1:].astype(int)
-
-        # Group the hour columns into four parts: noon, afternoon, evening, night
-        if values=='median':
-            grouped_data = dataframe.groupby(hour_values // 6, axis=1).median().rename(columns={0:'Night',1:'Noon',2:'Afternoon',3:'Evening'})
-        elif values=='average':
-            grouped_data = dataframe.groupby(hour_values // 6, axis=1).mean().rename(columns={0:'Night',1:'Noon',2:'Afternoon',3:'Evening'})
-        else:
-            grouped_data = dataframe.groupby(hour_values // 6, axis=1).max().rename(columns={0:'Night',1:'Noon',2:'Afternoon',3:'Evening'})
-        
-        df_out = grouped_data.join(df[['Total GFA in 2016','Residential GFA in 2016']])
-        return df_out
+    # df for scatterplots
+    df = df_h10.h3.h3_to_parent_aggregate(case_level).rename(columns={'pub_trans_2016':'Public transit use 2016'})
     
-    @st.cache_data(max_entries=1)
-    def generate_scatter_map(dataframe,title,gfa='Total GFA in 2016',y_max=7000):
-        # Extract selected GFA values for plotting
-        gfa_values = dataframe[gfa]
+    #map holder and settigs under expander
+    scat_holder = st.empty()
 
-        # Extract the grouped medians for each day category and time group
-        noon = dataframe['Noon']
-        afternoon = dataframe['Afternoon']
-        evening = dataframe['Evening']
-        night = dataframe['Night']
-        dataframe['All'] = dataframe[['Noon','Afternoon','Evening','Night']].mean(axis=1)
-        avg = dataframe['All']
-
-        # Create the scatter plot
-        fig = px.scatter(dataframe, x=gfa_values, y=avg, trendline="ols", color_discrete_sequence=['lightgrey'], opacity=0.5)
-        fig.add_scatter(x=gfa_values, y=noon, mode='markers', name='Noon', marker=dict(color='red'))
-        fig.add_scatter(x=gfa_values, y=afternoon, mode='markers', name='Afternoon', marker=dict(color='orange'))
-        fig.add_scatter(x=gfa_values, y=evening, mode='markers', name='Evening', marker=dict(color='skyblue'))
-        fig.add_scatter(x=gfa_values, y=night, mode='markers', name='Night', marker=dict(color='violet', opacity=0.5))
-        # invert plot order
-        fig.data = fig.data[::-1]
-
-        #trendline
-        trendline_res = px.get_trendline_results(fig)
-        summary = trendline_res.iloc[0]["px_fit_results"].summary()
-        coef = round(px.get_trendline_results(fig).px_fit_results.iloc[0].rsquared,2)
-
-        # Customize the plot layout
-        fig.update_layout(xaxis_title=f'{gfa[:-8]} in location', yaxis_title='Daytime population',yaxis_range=[0,y_max],legend_traceorder="reversed")
-        fig.update_layout(title=title)
-        fig.update_layout(legend=dict(orientation="h",x=0.05))
-        fig.add_annotation(text=f'OLS-Trendline of average values in grey (R-squared coef: {coef})',
-                    align='left',
-                    showarrow=False,
-                    xref='paper',
-                    yref='paper',
-                    x=0.05,
-                    y=-0.07,
-                    #bordercolor='black', borderwidth=1
-                    )
-        return fig,summary
-
-    # day selector
-    s1,s2,s3 = st.columns(3)
-    day = s1.radio('Select time category',('Working day','Saturday','Sunday'),horizontal=True)
-    gfa_set = s2.radio('Select GFA',('Residential GFA in 2016','Total GFA in 2016'),horizontal=True)
-    use_values = s3.radio('Use values',('median','average','max'),horizontal=True)
-    scat_holder = st.empty() #map before quantile set
-    filter = st.radio('Filter top decile GFA',('None','Residential GFA in 2016','Total GFA in 2016'),horizontal=True)
     if filter == 'Total GFA in 2016':
         df = df.loc[df['Total GFA in 2016'] < df['Total GFA in 2016'].quantile(0.9)]
         mytitle = f"{kuntani}: Resolution H{case_level} at '{day}' using '{use_values}' values. (high total GFA locations filtered)"
@@ -567,100 +561,277 @@ with tab1:
     else:
         mytitle = f"{kuntani}: Resolution H{case_level} at '{day}' using '{use_values}' values. "
 
-    if day == 'Working day':
-        df_for_plot = grouping(df,reg='WO',values=use_values)            
-    elif day == 'Saturday':
-        df_for_plot = grouping(df,reg='SA',values=use_values)
-    else:
-        df_for_plot = grouping(df,reg='SU',values=use_values)
-
-    ymax = df_for_plot.drop(columns=['Residential GFA in 2016','Total GFA in 2016']).to_numpy().max()
-
-    scat24,summary = generate_scatter_map(df_for_plot,title=mytitle,gfa=gfa_set,y_max=ymax)
-
-    with scat_holder:
-        st.plotly_chart(scat24, use_container_width=True)
-    
     source_24h = """
     Data source: <a href="https://zenodo.org/record/4724389" target="_blank">A 24-hour dynamic population distribution dataset based on mobile phone data from Helsinki Metropolitan Area, Finland</a>
     """
     st.markdown(source_24h, unsafe_allow_html=True)
 
-with tab2:
-    summary
-    st.markdown('###')
 
-st.markdown('---')
-with st.expander('PDF downloads', expanded=False):
-    import io
-    def gen_pdf(fig):
-        buffer_fig = io.BytesIO()
-        # https://github.com/plotly/plotly.py/issues/3469
-        temp_fig = px.scatter(x=[0, 1, 2, 3, 4], y=[0, 1, 4, 9, 16])
-        temp_fig.write_image(file=buffer_fig, format="pdf")
-        import time
-        time.sleep(1)
-        # adjust layout
-        fig.update_layout(
-                    margin={"r": 100, "t": 100, "l": 100, "b": 100}, height=700,
+#----------------functions-------------------
+
+#noon,afternoon... grouping
+def grouping(df,reg='WO',values='median'):
+    dataframe = df.filter(regex=reg)
+    # Rename columns with underscore
+    renamed_columns = []
+    for column in dataframe.columns:
+        if "_" in column:
+            renamed_columns.append(column.split("_")[1])
+        else:
+            renamed_columns.append(column)
+    dataframe.columns = renamed_columns
+
+    # Extract the hour values from the column names
+    hour_values = dataframe.columns.str[1:].astype(int)
+
+    # Group the hour columns into four parts: noon, afternoon, evening, night
+    if values=='median':
+        grouped_data = dataframe.groupby(hour_values // 6, axis=1).median().rename(columns={0:'Night',1:'Noon',2:'Afternoon',3:'Evening'})
+    elif values=='average':
+        grouped_data = dataframe.groupby(hour_values // 6, axis=1).mean().rename(columns={0:'Night',1:'Noon',2:'Afternoon',3:'Evening'})
+    else:
+        grouped_data = dataframe.groupby(hour_values // 6, axis=1).max().rename(columns={0:'Night',1:'Noon',2:'Afternoon',3:'Evening'})
+    
+    df_out = grouped_data.join(df[['Total GFA in 2016','Residential GFA in 2016']])
+    return df_out
+
+@st.cache_data(max_entries=1)
+def generate_scatter_map(dataframe,title,gfa='Total GFA in 2016',y_max=7000):
+    # Extract selected GFA values for plotting
+    gfa_values = dataframe[gfa]
+
+    # Extract the grouped medians for each day category and time group
+    noon = dataframe['Noon']
+    afternoon = dataframe['Afternoon']
+    evening = dataframe['Evening']
+    night = dataframe['Night']
+    dataframe['All'] = dataframe[['Noon','Afternoon','Evening','Night']].mean(axis=1)
+    avg = dataframe['All']
+
+    # Create the scatter plot
+    fig = px.scatter(dataframe, x=gfa_values, y=avg, trendline="ols", color_discrete_sequence=['lightgrey'], opacity=0.5)
+    fig.add_scatter(x=gfa_values, y=noon, mode='markers', name='Noon', marker=dict(color='red'))
+    fig.add_scatter(x=gfa_values, y=afternoon, mode='markers', name='Afternoon', marker=dict(color='orange'))
+    fig.add_scatter(x=gfa_values, y=evening, mode='markers', name='Evening', marker=dict(color='skyblue'))
+    fig.add_scatter(x=gfa_values, y=night, mode='markers', name='Night', marker=dict(color='violet', opacity=0.5))
+    # invert plot order
+    fig.data = fig.data[::-1]
+
+    #trendline
+    trendline_res = px.get_trendline_results(fig)
+    summary = trendline_res.iloc[0]["px_fit_results"].summary()
+    coef = round(px.get_trendline_results(fig).px_fit_results.iloc[0].rsquared,2)
+
+    # Customize the plot layout
+    fig.update_layout(xaxis_title=f'{gfa[:-8]} in location', yaxis_title='Daytime population',yaxis_range=[0,y_max],legend_traceorder="reversed")
+    fig.update_layout(title=title)
+    fig.update_layout(legend=dict(orientation="h",x=0.05))
+    fig.add_annotation(text=f'OLS-Trendline of average values in grey (R-squared coef: {coef})',
+                align='left',
+                showarrow=False,
+                xref='paper',
+                yref='paper',
+                x=0.05,
+                y=-0.07,
+                #bordercolor='black', borderwidth=1
+                )
+    return fig,summary
+
+def corr_loss24(df, h=10, method='pearson'):
+    # Determine the GFA column by removing the time columns from the DataFrame's columns
+    gfa_column = [col for col in df.columns if col not in ['Night', 'Noon', 'Afternoon', 'Evening']][0]
+    
+    y_list = ['Night', 'Noon', 'Afternoon', 'Evening']
+
+    frames = []
+    for y in y_list:
+        corr_list = []
+        for i in range(1, 5):
+            df_i = df.h3.h3_to_parent_aggregate(h-i, return_geometry=False)
+            
+            # apply box cox transform to values..
+            if method == 'pearson':
+                # Ensure values are positive before applying boxcox for GFA column
+                non_positive_values_gfa = df_i[df_i[gfa_column] <= 0]
+                if not non_positive_values_gfa.empty:
+                    df_i[gfa_column] = df_i[gfa_column].clip(lower=0.01)
+                    df_i[gfa_column] = boxcox(df_i[gfa_column])[0]
+                else:
+                    df_i[gfa_column] = boxcox(df_i[gfa_column])[0]
+
+                # Ensure values are positive before applying boxcox for time of day
+                non_positive_values_y = df_i[df_i[y] <= 0]
+                if not non_positive_values_y.empty:
+                    df_i[y] = df_i[y].clip(lower=0.01)
+                    df_i[y] = boxcox(df_i[y])[0]
+                else:
+                    df_i[y] = boxcox(df_i[y])[0]
+                    
+            # use as transformed
+            corr_i = df_i.corr(method=method)[gfa_column][y]
+            corr_list.append(corr_i)
+        corr_y = pd.DataFrame(corr_list, index=['h9', 'h8', 'h7', 'h6'], columns=['GFA vs ' + y])
+        frames.append(corr_y)
+        
+    corr_df = pd.concat(frames, axis=1, ignore_index=False)
+    return corr_df
+
+# corrs combined
+def corrs24_combine(my_gdf24,ref_gdf24):
+    # calcs .rename(columns={'Total GFA in 2016':'Total GFA'}) .rename(columns={'Residential GFA in 2016':'Residential GFA'})
+    facet_cols_total_gfa = ['Total GFA in 2016','Night','Noon','Afternoon','Evening']
+    facet_cols_res_gfa = ['Residential GFA in 2016','Night','Noon','Afternoon','Evening']
+    corr_tot_GFA = corr_loss24(my_gdf24[facet_cols_total_gfa],method=my_method)
+    corr_tot_GFA_ref = corr_loss24(ref_gdf24[facet_cols_total_gfa],method=my_method)
+    corr_res_GFA = corr_loss24(my_gdf24[facet_cols_res_gfa],method=my_method)
+    corr_res_GFA_ref = corr_loss24(ref_gdf24[facet_cols_res_gfa],method=my_method)
+    # replace h6 values with reference values for both
+    corr_tot_GFA.loc[corr_tot_GFA.index == 'h6', list(corr_tot_GFA.columns)] = corr_tot_GFA_ref[list(corr_tot_GFA.columns)]
+    corr_tot_GFA['GFA_type'] = 'Total GFA'
+    corr_res_GFA.loc[corr_res_GFA.index == 'h6', list(corr_res_GFA.columns)] = corr_res_GFA_ref[list(corr_res_GFA.columns)]
+    corr_res_GFA['GFA_type'] = 'Residential GFA'
+    # combine
+    corrs_all = pd.concat([corr_tot_GFA,corr_res_GFA])
+    return corrs_all
+
+#coor per daytime
+def corrs24_generate(my_reg='WO',my_values='max'):
+    # use original h10 data for grouping..
+    df_for_corr = grouping(df_h10,reg=my_reg,values=my_values)
+    ref_df_corr = grouping(gdf24,reg=my_reg,values=my_values) # for reference corrs of H6
+    # and then calc loss using that
+    corrs24_out = corrs24_combine(my_gdf24=df_for_corr,ref_gdf24=ref_df_corr)
+    return corrs24_out, df_for_corr, ref_df_corr #corrs24_out
+
+def corrs24_plotter(corr_plot,fixed=True):
+    # line_dash_map = which pairs to plot with line types
+    line_map = {'GFA vs Noon':'solid','GFA vs Afternoon':'solid','GFA vs Evening':'dash','GFA vs Night':'dash'}
+    fig_corr = px.line(corr_plot,line_dash='variable',line_dash_map=line_map,
+                labels = {'index':'Spatial resolution','value':'Correlation coefficient','variable':'Correlation pairs'},
+                title=f'Correlation loss in daytime population in {graph_title} at {day}', facet_col='GFA_type', facet_col_spacing=0.05)
+    # Define a dictionary to map values to line widths
+    line_width_map = {'GFA vs Noon': 0.5,'GFA vs Afternoon': 2,'GFA vs Evening': 2,'GFA vs Night': 0.5}
+
+    # Loop over the traces and set the line width
+    
+    for trace in fig_corr.data:
+        trace_line_variable = trace.line.dash  # Getting the value used for line_dash in this trace
+        if trace_line_variable in line_width_map:
+            print(f"Setting line width for {trace_line_variable} to {line_width_map[trace_line_variable]}")  # Debug print
+            trace.line.width = line_width_map[trace_line_variable]
+    
+    #xaxis reversed
+    fig_corr.update_xaxes(autorange="reversed")#, side='top')
+
+    #help lines
+    fig_corr['layout'].update(shapes=[{'type': 'line','y0':0.5,'y1': 0.5,'x0':str(corr_plot.index[0]), 
+                                'x1':str(corr_plot.index[-1]),'xref':'x1','yref':'y1',
+                                'line': {'color': 'black','width': 0.5,'dash':'dash'}},
+                                {'type': 'line','y0':0.5,'y1': 0.5,'x0':str(corr_plot.index[0]), 
+                                'x1':str(corr_plot.index[-1]),'xref':'x2','yref':'y2',
+                                'line': {'color': 'black','width': 0.5,'dash':'dash'}}])
+    #fig_corr.add_vrect(
+    #    x0=corr_plot.index[-2], x1=corr_plot.index[-1],
+    #    fillcolor="white", opacity=0.8,
+    #    layer="above", line_width=0,
+    #)
+    fig_corr.update_layout(#margin={"r": 10, "t": 50, "l": 10, "b": 50}, height=700,
                     legend=dict(
                         yanchor="top",
                         y=-0.15,
                         xanchor="left",
                         x=-0.0
-                        )
                     )
-        # replace temp_fig in buffer
-        fig.write_image(file=buffer_fig, format="pdf")
-        return buffer_fig
-    
-    pdf_out = None
-    d1,d2 = st.columns([1,2])
-    #with d1.form("my_form",clear_on_submit=True):
-    my_sel = d1.selectbox('',['Generate pdf from..','Correlation loss','Daytime population'])
-    if my_sel != 'Generate pdf from..':
-        if my_sel == 'Correlation loss':
-            my_fig = fig_corr
-        elif my_sel == 'Daytime population':
-            my_fig = scat24
-            
-        with st.spinner():
-            pdf_out = gen_pdf(my_fig)
-            d1.markdown('###')
-            d1.download_button(
-                label="Download pdf",
-                data=pdf_out,
-                file_name=f"{my_sel}_{graph_title}_H{case_level}.pdf",
-                mime="application/pdf",
+                    )
+    minimi = -0.25
+    #minimi = corr_plot.stack().min()
+    fig_corr.update_layout(yaxis_range=[minimi,1])
+    fig_corr.update_xaxes(type='category')
+
+    # Extract unique year values directly from the dataframe
+    year_vals = corr_plot['GFA_type'].unique()
+    new_labels = {f"GFA_type={y}": str(y) for y in year_vals}
+    fig_corr.for_each_annotation(lambda a: a.update(text=new_labels.get(a.text, a.text)))
+
+    return fig_corr
+
+
+# --------------- DATA to VIZs --------------------------
+if day == 'Working day':
+    df_for_scat = grouping(df,reg='WO',values=use_values)
+    df_for_corrs = corrs24_generate(my_reg='WO',my_values=use_values)
+elif day == 'Saturday':
+    df_for_scat = grouping(df,reg='SA',values=use_values)
+    df_for_corrs = corrs24_generate(my_reg='SA',my_values=use_values)
+else:
+    df_for_scat = grouping(df,reg='SU',values=use_values)
+    df_for_corrs = corrs24_generate(my_reg='SU',my_values=use_values)
+
+# figures..
+ymax = df_for_scat.drop(columns=['Residential GFA in 2016','Total GFA in 2016']).to_numpy().max()
+scat24,summary = generate_scatter_map(df_for_scat,title=mytitle,gfa=gfa_set,y_max=ymax)
+corrs24_fig = corrs24_plotter(df_for_corrs[0])
+
+# ----------- viz the data in place holders ---------
+with scat_holder:
+    st.plotly_chart(scat24, use_container_width=True)
+
+with corr_holder:
+    st.plotly_chart(corrs24_fig, use_container_width=True)
+
+
+# for corr loss plot..
+#with st.expander('data',expanded=False):
+#    c1,c2,c3 = st.columns(3)
+#    c1.dataframe(df_for_corrs[0])
+#    c2.dataframe(df_for_corrs[1])
+#    c3.dataframe(df_for_corrs[2])
+
+
+st.markdown('---')
+import io
+def gen_pdf(fig):
+    buffer_fig = io.BytesIO()
+    # https://github.com/plotly/plotly.py/issues/3469
+    temp_fig = px.scatter(x=[0, 1, 2, 3, 4], y=[0, 1, 4, 9, 16])
+    temp_fig.write_image(file=buffer_fig, format="pdf")
+    import time
+    time.sleep(1)
+    # adjust layout
+    fig.update_layout(
+                margin={"r": 100, "t": 100, "l": 100, "b": 100}, height=700,
+                legend=dict(
+                    yanchor="top",
+                    y=-0.15,
+                    xanchor="left",
+                    x=-0.0
+                    )
                 )
+    # replace temp_fig in buffer
+    fig.write_image(file=buffer_fig, format="pdf")
+    return buffer_fig
 
-with st.expander('Classification', expanded=False):       
-    class_expl = """
-    For used resolutions, see: <a href="https://h3geo.org/docs/core-library/restable/" target="_blank">h3geo.org</a>
-
-    **Urban amenities** are all company business space locations which belong
-    to the following finnish TOL-industry classes (tol95 and tol2008):  
-    _Wholesale and retail_  
-    _Accomondation and food service activites_  
-    _Information and communication_  
-    _Financial and insurance activities_  
-    _Other service activities_  
-    More info: <a href="https://www.stat.fi/en/luokitukset/toimiala/" target="_blank">Stat.fi</a>  
-      
-    OPC = One Person Companies according to the information in national business space location registry (YrTp)  
-    Correlation values are <a href="https://en.wikipedia.org/wiki/Pearson_correlation_coefficient" target="_blank">Pearson</a> 
-    correlation coefficient (r) -values computed using <a href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.corr.html" target="_blank">Pandas</a> library.  
-
-    <p style="font-family:sans-serif; color:grey; font-size: 12px;">
-    Original raw data is from
-    <a href="https://research.aalto.fi/fi/projects/l%C3%A4hi%C3%B6iden-kehityssuunnat-ja-uudelleenkonseptointi-2020-luvun-segr " target="_blank">Re:Urbia</a>
-    -research project data retrieved from the data products "SeutuCD 2002" and "SeutuCD 2018" by Statistical Finland. 
-    Data for company facilities in SeutuCD -products are two years older than the publishing year of the product while data for buildings is roughly one year old.  
-    Despite this small timespan inconsistency building data is treated as the data for the companies. 
-    The construction which adds a bit of gross floor area in some neighbourhoods within one year of time is analysed to be not relevant in amount for the validity issue in the scope of the study. 
-    Based on this alignment the data paper analyze the “eras” 2000 and 2016.
-    """
-    st.markdown(class_expl, unsafe_allow_html=True)
+pdf_out = None
+d1,d2 = st.columns([1,2])
+#with d1.form("my_form",clear_on_submit=True):
+my_sel = d1.selectbox('',['Generate pdf from..','Correlation loss in amenities','Correlation loss in daytime population','Daytime population scatter plot'])
+if my_sel != 'Generate pdf from..':
+    if my_sel == 'Correlation loss in amenities':
+        my_fig = fig_corr
+    elif my_sel == 'Correlation loss in daytime population':
+        my_fig = corrs24_fig
+    elif my_sel == 'Daytime population scatter plot':
+        my_fig = scat24
+        
+    with st.spinner():
+        pdf_out = gen_pdf(my_fig)
+        d1.markdown('###')
+        d1.download_button(
+            label="Download pdf",
+            data=pdf_out,
+            file_name=f"{my_sel}_{graph_title}_H{case_level}.pdf",
+            mime="application/pdf",
+            )
 
 #footer
 st.markdown('---')
