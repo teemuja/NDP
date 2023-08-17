@@ -130,8 +130,12 @@ centre_pnos = [
 "Alppila - Vallila"
 ]
 
-s1,s2,s3 = st.columns(3)
+s1,s2 = st.columns(2)
 kuntani = s1.selectbox('Select study area',['Helsinki','Espoo','Vantaa','Helsinki centre','Helsinki suburbs','All suburbs'])
+# feature selector place_holder
+feature_selector = s2.empty()
+feat_selector_warning = st.empty()
+
 if kuntani == 'Helsinki centre':
     mygdf = gdf.loc[gdf.pno.isin(centre_pnos)]
     #for day pop study..
@@ -150,14 +154,13 @@ else:
     mygdf = gdf.loc[gdf.kunta == kuntani]
     mygdf24 = gdf24.loc[gdf24.kunta == kuntani]
 
-#q_range = s3.slider(' ',0,100,(0,100),10) 
-# filter accordingly..
-#mygdf = mygdf.loc[mygdf[f'{color}'].astype(int) > mygdf[f'{color}'].astype(int).quantile(q_range[0]/100)] 
-#mygdf = mygdf.loc[mygdf[f'{color}'].astype(int) < mygdf[f'{color}'].astype(int).quantile(q_range[1]/100)]
 
-# the graph
+
+# ------------------------- AMENITYS STUDY -------------------------------
 st.markdown('---')
 st.subheader('Urban amenity study')
+
+# main graphs before sample checks
 graph_place = st.empty()
 
 # the checks
@@ -167,17 +170,17 @@ with st.expander('Sample checks', expanded=False):
 
     m1,m2,m3 = st.columns(3)
     
-    # func to purge col names by characters in them
-    col_list_all = mygdf.drop(columns=['kunta','pno']).columns.to_list()
+    # func to purge col names by characters in them for map viz
     def purge(mylist,purge_list):
         for i in purge_list:
             mylist = [c for c in mylist if i not in c]
         return mylist
     purgelist = ['WO','SA','SU']
+    col_list_all = mygdf.drop(columns=['kunta','pno']).columns.to_list()
     feat_list = purge(col_list_all,purge_list=purgelist)
     default_ix = feat_list.index('Residential GFA in 2016')
     color = m1.selectbox('Check features on map', feat_list, index=default_ix)
-    level = m2.radio('Change H3-resolution for validation checks',(7,8,9),horizontal=True)
+    level = m2.radio('Change H3-resolution for validation checks',(6,7,8,9),horizontal=True)
     m2.caption('https://h3geo.org/docs/core-library/restable/')
 
     # map plot
@@ -193,7 +196,6 @@ with st.expander('Sample checks', expanded=False):
         fig = px.choropleth_mapbox(plot,
                                 geojson=plot.geometry,
                                 locations=plot.index,
-                                #title='Filtered data on map',
                                 color=color,
                                 center={"lat": lat, "lon": lon},
                                 mapbox_style=my_style,
@@ -206,15 +208,23 @@ with st.expander('Sample checks', expanded=False):
                                 width=1200,
                                 height=700
                                 )
-        fig.update_layout(margin={"r": 0, "t": 0, "l": 0, "b": 0}, height=700)
-        fig.update_layout(coloraxis_showscale=False)
+        fig.update_layout(
+                            margin={"r": 0, "t": 30, "l": 0, "b": 0},
+                            height=700,
+                            coloraxis_showscale=False,
+                            title_text='Study area data on map (zero and none value hexas removed)'
+                        )
         with mapplace:
             st.plotly_chart(fig, use_container_width=True)
 
         # cell area info in column 3
         avg_cell_area = round(plot.h3.cell_area()['h3_cell_area'].mean(),3)
         m3.markdown('###')
-        m3.markdown(f'Avg. cell area in H{level}: **{avg_cell_area} km²**')
+        m3.markdown(f'Cell area in H{level}: **{avg_cell_area} km²**')
+        # Calculate average radius
+        import math
+        avg_radius = round(math.sqrt((2 * avg_cell_area) / (3 * math.sqrt(3))),2)
+        m3.markdown(f'Cell diameter in H{level}: **{2*avg_radius} km**')
     else:
         st.stop()
     
@@ -361,7 +371,10 @@ with st.expander('Sample checks', expanded=False):
     """
     st.markdown(class_expl, unsafe_allow_html=True)
 
-# ----------------------------------- corr graphs --------------------------------
+
+
+
+# ----------------------------------- corr calculations for graph_place above --------------------------------
 
 def corr_loss(df,h=10,corr_type='year',method='pearson'): # h-value is one more than generated corr-levels
     if corr_type == '2000':
@@ -467,19 +480,24 @@ except Exception as e:
     st.warning(f"Issue occured with BoxCox transformation: {e}")
     st.stop()
 
-# select feat for corrs
+# select feat for corrs ...
 plot_list = corrs.columns.to_list()[:-1]
+# using only these..
 my_plot_list = ['Residential GFA VS Urban amenities (OPC excluded)',
                 'Residential GFA VS One person companies (OPC) in urban amenities'
                 ]
-scat_list = my_plot_list #st.multiselect('Choose data for the correlation plot', plot_list,default=my_plot_list, max_selections=2)
+# ..or select from data
+with feature_selector:
+    scat_list = st.multiselect('Choose data for the correlation plot', plot_list,default=my_plot_list, max_selections=2)
 if len(scat_list) == 2:
     scat_list.extend(['year'])
     corr_plot = corrs[corrs.columns.intersection(scat_list)]
 else:
+    with feat_selector_warning:
+        st.warning('Select two features from the data to plot the correlarion loss.')
     st.stop()
 
-# plotter
+# plotting ..
 graph_title = kuntani
 
 fig_corr = px.line(corr_plot,line_dash='variable',line_dash_map={my_plot_list[0]:'solid',my_plot_list[1]:'dash'},
@@ -493,11 +511,7 @@ fig_corr['layout'].update(shapes=[{'type': 'line','y0':0.5,'y1': 0.5,'x0':str(co
                              {'type': 'line','y0':0.5,'y1': 0.5,'x0':str(corr_plot.index[0]), 
                               'x1':str(corr_plot.index[-1]),'xref':'x2','yref':'y2',
                               'line': {'color': 'black','width': 0.5,'dash':'dash'}}])
-#fig_corr.add_vrect(
-#    x0=corr_plot.index[-2], x1=corr_plot.index[-1],
-#    fillcolor="white", opacity=0.8,
-#    layer="above", line_width=0,
-#)
+#
 fig_corr.update_layout(#margin={"r": 10, "t": 50, "l": 10, "b": 50}, height=700,
                 legend=dict(
                     yanchor="top",
@@ -509,7 +523,8 @@ fig_corr.update_layout(#margin={"r": 10, "t": 50, "l": 10, "b": 50}, height=700,
 # Extract unique year values directly from the dataframe
 year_vals = corr_plot['year'].unique()
 new_labels = {f"year={y}": str(y) for y in year_vals}
-fig_corr.for_each_annotation(lambda a: a.update(text=new_labels.get(a.text, a.text)))
+# Update the annotations with new labels and increase the font size
+fig_corr.for_each_annotation(lambda a: a.update(text=new_labels.get(a.text, a.text), font=dict(size=16, family="Arial Bold")))
 
 minimi = -0.25
 #minimi = corr_plot.stack().min()
@@ -551,6 +566,7 @@ with st.expander('Sample checks', expanded=False):
     
     #map holder and settigs under expander
     scat_holder = st.empty()
+    st.markdown('###')
 
     if filter == 'Total GFA in 2016':
         df = df.loc[df['Total GFA in 2016'] < df['Total GFA in 2016'].quantile(0.9)]
@@ -626,23 +642,21 @@ def generate_scatter_map(dataframe,title,gfa='Total GFA in 2016',y_max=7000):
     fig.update_layout(xaxis_title=f'{gfa[:-8]} in location', yaxis_title='Daytime population',yaxis_range=[0,y_max],legend_traceorder="reversed")
     fig.update_layout(title=title)
     fig.update_layout(legend=dict(orientation="h",x=0.05))
-    fig.add_annotation(text=f'OLS-Trendline of average values in grey (R-squared coef: {coef})',
-                align='left',
-                showarrow=False,
-                xref='paper',
-                yref='paper',
-                x=0.05,
-                y=-0.07,
-                #bordercolor='black', borderwidth=1
-                )
+    #fig.add_annotation(text=f'OLS-Trendline of average values in grey (R-squared coef: {coef})',
+    #            align='left',
+    #            showarrow=False,
+    #            xref='paper',
+    #            yref='paper',
+    #            x=0.05,
+    #            y=-0.07,
+    #            #bordercolor='black', borderwidth=1
+    #            )
     return fig,summary
 
 def corr_loss24(df, h=10, method='pearson'):
     # Determine the GFA column by removing the time columns from the DataFrame's columns
     gfa_column = [col for col in df.columns if col not in ['Night', 'Noon', 'Afternoon', 'Evening']][0]
-    
     y_list = ['Night', 'Noon', 'Afternoon', 'Evening']
-
     frames = []
     for y in y_list:
         corr_list = []
@@ -710,15 +724,14 @@ def corrs24_plotter(corr_plot,fixed=True):
                 labels = {'index':'Spatial resolution','value':'Correlation coefficient','variable':'Correlation pairs'},
                 title=f'Correlation loss in daytime population in {graph_title} at {day}', facet_col='GFA_type', facet_col_spacing=0.05)
     # Define a dictionary to map values to line widths
-    line_width_map = {'GFA vs Noon': 0.5,'GFA vs Afternoon': 2,'GFA vs Evening': 2,'GFA vs Night': 0.5}
+    line_width_map = {'GFA vs Noon': 0.5,'GFA vs Afternoon': 3,'GFA vs Evening': 3,'GFA vs Night': 0.5}
 
     # Loop over the traces and set the line width
-    
     for trace in fig_corr.data:
-        trace_line_variable = trace.line.dash  # Getting the value used for line_dash in this trace
-        if trace_line_variable in line_width_map:
-            print(f"Setting line width for {trace_line_variable} to {line_width_map[trace_line_variable]}")  # Debug print
-            trace.line.width = line_width_map[trace_line_variable]
+        trace_name = trace.name  # Getting the name of the trace
+        if trace_name in line_width_map:
+            #print(f"Setting line width for {trace_name} to {line_width_map[trace_name]}")  # Debug print
+            trace.line.width = line_width_map[trace_name]
     
     #xaxis reversed
     fig_corr.update_xaxes(autorange="reversed")#, side='top')
@@ -730,11 +743,8 @@ def corrs24_plotter(corr_plot,fixed=True):
                                 {'type': 'line','y0':0.5,'y1': 0.5,'x0':str(corr_plot.index[0]), 
                                 'x1':str(corr_plot.index[-1]),'xref':'x2','yref':'y2',
                                 'line': {'color': 'black','width': 0.5,'dash':'dash'}}])
-    #fig_corr.add_vrect(
-    #    x0=corr_plot.index[-2], x1=corr_plot.index[-1],
-    #    fillcolor="white", opacity=0.8,
-    #    layer="above", line_width=0,
-    #)
+    
+    #legend
     fig_corr.update_layout(#margin={"r": 10, "t": 50, "l": 10, "b": 50}, height=700,
                     legend=dict(
                         yanchor="top",
@@ -751,7 +761,8 @@ def corrs24_plotter(corr_plot,fixed=True):
     # Extract unique year values directly from the dataframe
     year_vals = corr_plot['GFA_type'].unique()
     new_labels = {f"GFA_type={y}": str(y) for y in year_vals}
-    fig_corr.for_each_annotation(lambda a: a.update(text=new_labels.get(a.text, a.text)))
+    # Update the annotations with new labels and increase the font size
+    fig_corr.for_each_annotation(lambda a: a.update(text=new_labels.get(a.text, a.text), font=dict(size=16, family="Arial Bold")))
 
     return fig_corr
 
@@ -774,7 +785,11 @@ corrs24_fig = corrs24_plotter(df_for_corrs[0])
 
 # ----------- viz the data in place holders ---------
 with scat_holder:
-    st.plotly_chart(scat24, use_container_width=True)
+    scat1,scat2 = st.columns(2)
+    scat1.markdown('---')
+    scat1.plotly_chart(scat24, use_container_width=True)
+    scat2.markdown('---')
+    scat2.write(summary)
 
 with corr_holder:
     st.plotly_chart(corrs24_fig, use_container_width=True)
@@ -790,6 +805,7 @@ with corr_holder:
 
 st.markdown('---')
 import io
+@st.cache_data()
 def gen_pdf(fig):
     buffer_fig = io.BytesIO()
     # https://github.com/plotly/plotly.py/issues/3469
@@ -810,28 +826,28 @@ def gen_pdf(fig):
     # replace temp_fig in buffer
     fig.write_image(file=buffer_fig, format="pdf")
     return buffer_fig
-
-pdf_out = None
-d1,d2 = st.columns([1,2])
-#with d1.form("my_form",clear_on_submit=True):
-my_sel = d1.selectbox('',['Generate pdf from..','Correlation loss in amenities','Correlation loss in daytime population','Daytime population scatter plot'])
-if my_sel != 'Generate pdf from..':
-    if my_sel == 'Correlation loss in amenities':
-        my_fig = fig_corr
-    elif my_sel == 'Correlation loss in daytime population':
-        my_fig = corrs24_fig
-    elif my_sel == 'Daytime population scatter plot':
-        my_fig = scat24
         
-    with st.spinner():
-        pdf_out = gen_pdf(my_fig)
-        d1.markdown('###')
-        d1.download_button(
-            label="Download pdf",
-            data=pdf_out,
-            file_name=f"{my_sel}_{graph_title}_H{case_level}.pdf",
-            mime="application/pdf",
-            )
+with st.spinner():
+    st.subheader('Downloads')
+    #
+    fig_corr_pdf = gen_pdf(fig_corr)
+    fig_corr_pdf_name = f"Correlation loss in urban amenities in {graph_title}.pdf"
+    corrs24_fig_pdf = gen_pdf(corrs24_fig)
+    corrs24_fig_pdf_name = f"Correlation loss in daytime population in {graph_title}.pdf"
+    
+    st.download_button(
+        label=fig_corr_pdf_name,
+        data=fig_corr_pdf,
+        file_name=fig_corr_pdf_name,
+        mime="application/pdf",
+        )
+
+    st.download_button(
+        label=corrs24_fig_pdf_name,
+        data=corrs24_fig_pdf,
+        file_name=corrs24_fig_pdf_name,
+        mime="application/pdf",
+        )
 
 #footer
 st.markdown('---')
