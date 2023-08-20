@@ -708,11 +708,51 @@ def corrs24_combine(my_gdf24,ref_gdf24):
     corrs_all = pd.concat([corr_tot_GFA,corr_res_GFA])
     return corrs_all
 
+import h3pandas
+import pandas as pd
+
+import h3pandas
+import pandas as pd
+
+def filter_hexagons_by_neighbors(df,use_col,q=0.9):
+    """
+    Filter H3 hexagons by the 0.9 quantile value calculated from the sum of GFA values of each hexagon's neighboring hexagons.
+    Parameters:
+    - df (DataFrame): Input DataFrame of H3 hexagons of resolution level 10 (h10) indexed by h3_id with a 'GFA' column
+    Returns:
+    - DataFrame: Filtered DataFrame
+    """
+    def sum_neighboring_col(h3_index):
+        # Get neighboring hexagons
+        neighbors = h3pandas.h3.k_ring(h3_index, k=1)
+        # Calculate sum of GFA values for neighboring hexagons
+        return df.loc[df.index.intersection(neighbors), use_col].sum()
+    # Calculate the sum of GFA values for neighboring hexagons for each hexagon
+    df['neighbors_sum'] = df.index.to_series().apply(sum_neighboring_col)
+    # Calculate the 0.9 quantile value
+    quantile = df['neighbors_sum'].quantile(q)
+    # Filter hexagons based on the 0.9 quantile
+    filtered_df = df[df['neighbors_sum'] > quantile]
+    # Drop the temporary columns
+    filtered_df = filtered_df.drop(columns=['neighbors_sum'])
+    return filtered_df
+
+
 #coor per daytime
-def corrs24_generate(my_reg='WO',my_values='max'):
+def corrs24_generate(df_h10,df_ref,my_reg,my_values,filter=None):
+    #filter high gfa hexas of h10 original dana
+    if filter == 'Total GFA in 2016':
+        df_h10_use = filter_hexagons_by_neighbors(df_h10,use_col=filter,q=0.9)
+        ref_use = filter_hexagons_by_neighbors(df_ref,use_col=filter,q=0.9)
+    elif filter == 'Residential GFA in 2016':
+        df_h10_use = filter_hexagons_by_neighbors(df_h10,use_col=filter,q=0.9)
+        ref_use = filter_hexagons_by_neighbors(df_ref,use_col=filter,q=0.9)
+    else: #originals
+        df_h10_use = df_h10
+        ref_use = df_ref
     # use original h10 data for grouping..
-    df_for_corr = grouping(df_h10,reg=my_reg,values=my_values)
-    ref_df_corr = grouping(gdf24,reg=my_reg,values=my_values) # for reference corrs of H6
+    df_for_corr = grouping(df_h10_use,reg=my_reg,values=my_values)
+    ref_df_corr = grouping(ref_use,reg=my_reg,values=my_values) # for reference corrs of H6
     # and then calc loss using that
     corrs24_out = corrs24_combine(my_gdf24=df_for_corr,ref_gdf24=ref_df_corr)
     return corrs24_out, df_for_corr, ref_df_corr #corrs24_out
@@ -770,13 +810,13 @@ def corrs24_plotter(corr_plot,fixed=True):
 # --------------- DATA to VIZs --------------------------
 if day == 'Working day':
     df_for_scat = grouping(df,reg='WO',values=use_values)
-    df_for_corrs = corrs24_generate(my_reg='WO',my_values=use_values)
+    df_for_corrs = corrs24_generate(df_h10=df_h10,df_ref=gdf24,my_reg='WO',my_values=use_values,filter=filter)
 elif day == 'Saturday':
     df_for_scat = grouping(df,reg='SA',values=use_values)
-    df_for_corrs = corrs24_generate(my_reg='SA',my_values=use_values)
+    df_for_corrs = corrs24_generate(df_h10=df_h10,df_ref=gdf24,my_reg='SA',my_values=use_values,filter=filter)
 else:
     df_for_scat = grouping(df,reg='SU',values=use_values)
-    df_for_corrs = corrs24_generate(my_reg='SU',my_values=use_values)
+    df_for_corrs = corrs24_generate(df_h10=df_h10,df_ref=gdf24,my_reg='SU',my_values=use_values,filter=filter)
 
 # figures..
 ymax = df_for_scat.drop(columns=['Residential GFA in 2016','Total GFA in 2016']).to_numpy().max()
