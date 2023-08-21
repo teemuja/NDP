@@ -547,7 +547,7 @@ st.subheader('Daytime population study')
 s1,s2,s3 = st.columns(3)
 day = s1.radio('Select time category',('Working day','Saturday','Sunday'),horizontal=True)
 use_values = s2.radio('Use values',('median','average','max'),horizontal=True)
-filter = s3.radio('Filter top decile GFA',('None','Residential GFA','Total GFA'),horizontal=True)
+filter = s3.radio('Filter top decile GFA',('None','Residential GFA in 2016','Total GFA in 2016'),horizontal=True)
 
 # the corr plot
 corr_holder = st.empty()
@@ -571,7 +571,7 @@ with st.expander('Sample checks', expanded=False):
     if filter == 'Total GFA in 2016':
         df = df.loc[df['Total GFA in 2016'] < df['Total GFA in 2016'].quantile(0.9)]
         mytitle = f"{kuntani}: Resolution H{case_level} at '{day}' using '{use_values}' values. (high total GFA locations filtered)"
-    elif filter == 'Total GFA in 2016':
+    elif filter == 'Residential GFA in 2016':
         df = df.loc[df['Residential GFA in 2016'] < df['Residential GFA in 2016'].quantile(0.9)]
         mytitle = f"{kuntani}: Resolution H{case_level} at '{day}' using '{use_values}' values. (high res. GFA locations filtered)"
     else:
@@ -708,49 +708,37 @@ def corrs24_combine(my_gdf24,ref_gdf24):
     corrs_all = pd.concat([corr_tot_GFA,corr_res_GFA])
     return corrs_all
 
-import h3pandas
-import pandas as pd
 
-import h3pandas
-import pandas as pd
 
-def filter_hexagons_by_neighbors(df,use_col,q=0.9):
-    """
-    Filter H3 hexagons by the 0.9 quantile value calculated from the sum of GFA values of each hexagon's neighboring hexagons.
-    Parameters:
-    - df (DataFrame): Input DataFrame of H3 hexagons of resolution level 10 (h10) indexed by h3_id with a 'GFA' column
-    Returns:
-    - DataFrame: Filtered DataFrame
-    """
-    def sum_neighboring_col(h3_index):
-        # Get neighboring hexagons
-        neighbors = h3pandas.h3.k_ring(h3_index, k=1)
-        # Calculate sum of GFA values for neighboring hexagons
-        return df.loc[df.index.intersection(neighbors), use_col].sum()
-    # Calculate the sum of GFA values for neighboring hexagons for each hexagon
-    df['neighbors_sum'] = df.index.to_series().apply(sum_neighboring_col)
-    # Calculate the 0.9 quantile value
-    quantile = df['neighbors_sum'].quantile(q)
-    # Filter hexagons based on the 0.9 quantile
-    filtered_df = df[df['neighbors_sum'] > quantile]
-    # Drop the temporary columns
-    filtered_df = filtered_df.drop(columns=['neighbors_sum'])
+def aggregate_and_filter(df: pd.DataFrame, column_name: str) -> pd.DataFrame:
+    
+    # Utilize the h3pandas DataFrame extension to get the k-ring neighbors
+    df_with_neighbors = df.h3.k_ring(k=1)
+
+    # Calculate aggregated sums for each h3_id and its neighbors
+    df_with_neighbors['agg_sum'] = df_with_neighbors.apply(lambda row: df.loc[df.index.intersection(row['h3_k_ring']), column_name].sum(), axis=1)
+    
+    # Filter using quantile cut at 0.9
+    threshold = df_with_neighbors['agg_sum'].quantile(0.9)
+    filtered_df = df_with_neighbors[df_with_neighbors['agg_sum'] < threshold]
+    
+    # Drop additional columns and return the filtered dataframe
+    filtered_df = filtered_df.drop(columns=['h3_k_ring', 'agg_sum'])
+    
     return filtered_df
 
 
 #coor per daytime
 def corrs24_generate(df_h10,df_ref,my_reg,my_values,filter=None):
     #filter high gfa hexas of h10 original dana
-    if filter == 'Total GFA in 2016':
-        df_h10_use = filter_hexagons_by_neighbors(df_h10,use_col=filter,q=0.9)
-        ref_use = filter_hexagons_by_neighbors(df_ref,use_col=filter,q=0.9)
-    elif filter == 'Residential GFA in 2016':
-        df_h10_use = filter_hexagons_by_neighbors(df_h10,use_col=filter,q=0.9)
-        ref_use = filter_hexagons_by_neighbors(df_ref,use_col=filter,q=0.9)
-    else: #originals
+    if filter == 'None':
         df_h10_use = df_h10
         ref_use = df_ref
-    # use original h10 data for grouping..
+    else:
+        df_h10_use = aggregate_and_filter(df_h10,column_name=filter)
+        ref_use = aggregate_and_filter(df_ref,column_name=filter)
+
+    # use filtered data for grouping..
     df_for_corr = grouping(df_h10_use,reg=my_reg,values=my_values)
     ref_df_corr = grouping(ref_use,reg=my_reg,values=my_values) # for reference corrs of H6
     # and then calc loss using that
@@ -821,6 +809,8 @@ else:
 # figures..
 ymax = df_for_scat.drop(columns=['Residential GFA in 2016','Total GFA in 2016']).to_numpy().max()
 scat24,summary = generate_scatter_map(df_for_scat,title=mytitle,gfa=gfa_set,y_max=ymax)
+
+#..for corr_loss
 corrs24_fig = corrs24_plotter(df_for_corrs[0])
 
 # ----------- viz the data in place holders ---------
@@ -833,6 +823,7 @@ with scat_holder:
 
 with corr_holder:
     st.plotly_chart(corrs24_fig, use_container_width=True)
+
 
 
 # for corr loss plot..
