@@ -745,12 +745,13 @@ def corrs24_generate(df_h10,df_ref,my_reg,my_values,filter=None):
     corrs24_out = corrs24_combine(my_gdf24=df_for_corr,ref_gdf24=ref_df_corr)
     return corrs24_out, df_for_corr, ref_df_corr #corrs24_out
 
-def corrs24_plotter(corr_plot,fixed=True):
+def corrs24_plotter(corr_plot,filter='None',fixed=True):
     # line_dash_map = which pairs to plot with line types
     line_map = {'GFA vs Noon':'solid','GFA vs Afternoon':'solid','GFA vs Evening':'dash','GFA vs Night':'dash'}
+    title = f'Correlation loss in daytime population in {graph_title} at {day}'
     fig_corr = px.line(corr_plot,line_dash='variable',line_dash_map=line_map,
                 labels = {'index':'Spatial resolution','value':'Correlation coefficient','variable':'Correlation pairs'},
-                title=f'Correlation loss in daytime population in {graph_title} at {day}', facet_col='GFA_type', facet_col_spacing=0.05)
+                title=title, facet_col='GFA_type', facet_col_spacing=0.05)
     # Define a dictionary to map values to line widths
     line_width_map = {'GFA vs Noon': 0.5,'GFA vs Afternoon': 3,'GFA vs Evening': 3,'GFA vs Night': 0.5}
 
@@ -791,7 +792,18 @@ def corrs24_plotter(corr_plot,fixed=True):
     new_labels = {f"GFA_type={y}": str(y) for y in year_vals}
     # Update the annotations with new labels and increase the font size
     fig_corr.for_each_annotation(lambda a: a.update(text=new_labels.get(a.text, a.text), font=dict(size=16, family="Arial Bold")))
-
+    # add filter note as annotation
+    if filter != 'None':
+        filtered_note = f"Top deciles filtered using '{filter}'' values (Urban Centres excluded)."
+        fig_corr.add_annotation(text=filtered_note,
+                    align='left',
+                    showarrow=False,
+                    xref='paper',
+                    yref='paper',
+                    x=0.00,
+                    y=0.20,
+                    #bordercolor='black', borderwidth=1
+                    )
     return fig_corr
 
 
@@ -811,7 +823,7 @@ ymax = df_for_scat.drop(columns=['Residential GFA in 2016','Total GFA in 2016'])
 scat24,summary = generate_scatter_map(df_for_scat,title=mytitle,gfa=gfa_set,y_max=ymax)
 
 #..for corr_loss
-corrs24_fig = corrs24_plotter(df_for_corrs[0])
+corrs24_fig = corrs24_plotter(df_for_corrs[0],filter=filter)
 
 # ----------- viz the data in place holders ---------
 with scat_holder:
