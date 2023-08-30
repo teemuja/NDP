@@ -708,9 +708,33 @@ def corrs24_combine(my_gdf24,ref_gdf24):
     corrs_all = pd.concat([corr_tot_GFA,corr_res_GFA])
     return corrs_all
 
-
+# --------------------FILTERING---------------------------
 
 def aggregate_and_filter(df: pd.DataFrame, column_name: str) -> pd.DataFrame:
+    
+    # Utilize the h3pandas DataFrame extension to get the k-ring neighbors
+    df_with_neighbors = df.h3.k_ring(k=1)
+
+    # Calculate aggregated sums for each h3_id and its neighbors
+    df_with_neighbors['agg_sum'] = df_with_neighbors.apply(lambda row: df.loc[df.index.intersection(row['h3_k_ring']), column_name].sum(), axis=1)
+    
+    # Filter using quantile cut at 0.9
+    threshold = df_with_neighbors['agg_sum'].quantile(0.9)
+    exceeding_threshold = df_with_neighbors[df_with_neighbors['agg_sum'] >= threshold]
+
+    # Get the h3_ids and their neighbors to be excluded
+    ids_to_exclude = set(exceeding_threshold.index) | set(exceeding_threshold['h3_k_ring'].explode().unique())
+
+    # Filter out the ids_to_exclude from the original dataframe
+    filtered_df = df_with_neighbors[~df_with_neighbors.index.isin(ids_to_exclude)]
+
+    # Drop additional columns and return the filtered dataframe
+    filtered_df = filtered_df.drop(columns=['h3_k_ring', 'agg_sum'])
+    
+    return filtered_df
+
+
+def aggregate_and_filter_old(df: pd.DataFrame, column_name: str) -> pd.DataFrame:
     
     # Utilize the h3pandas DataFrame extension to get the k-ring neighbors
     df_with_neighbors = df.h3.k_ring(k=1)
@@ -729,6 +753,7 @@ def aggregate_and_filter(df: pd.DataFrame, column_name: str) -> pd.DataFrame:
 
 
 #coor per daytime
+@st.cache_data()
 def corrs24_generate(df_h10,df_ref,my_reg,my_values,filter=None):
     #filter high gfa hexas of h10 original dana
     if filter == 'None':
@@ -745,7 +770,7 @@ def corrs24_generate(df_h10,df_ref,my_reg,my_values,filter=None):
     corrs24_out = corrs24_combine(my_gdf24=df_for_corr,ref_gdf24=ref_df_corr)
     return corrs24_out, df_for_corr, ref_df_corr #corrs24_out
 
-def corrs24_plotter(corr_plot,filter='None',fixed=True):
+def corrs24_plotter(corr_plot,filter='None',day=day,fixed=True):
     # line_dash_map = which pairs to plot with line types
     line_map = {'GFA vs Noon':'solid','GFA vs Afternoon':'solid','GFA vs Evening':'dash','GFA vs Night':'dash'}
     title = f'Correlation loss in daytime population in {graph_title} at {day}'
@@ -818,12 +843,12 @@ else:
     df_for_scat = grouping(df,reg='SU',values=use_values)
     df_for_corrs = corrs24_generate(df_h10=df_h10,df_ref=gdf24,my_reg='SU',my_values=use_values,filter=filter)
 
-# figures..
+# scat figures..
 ymax = df_for_scat.drop(columns=['Residential GFA in 2016','Total GFA in 2016']).to_numpy().max()
 scat24,summary = generate_scatter_map(df_for_scat,title=mytitle,gfa=gfa_set,y_max=ymax)
 
 #..for corr_loss
-corrs24_fig = corrs24_plotter(df_for_corrs[0],filter=filter)
+corrs24_fig = corrs24_plotter(df_for_corrs[0],day=day,filter=filter)
 
 # ----------- viz the data in place holders ---------
 with scat_holder:
@@ -869,28 +894,42 @@ def gen_pdf(fig):
     # replace temp_fig in buffer
     fig.write_image(file=buffer_fig, format="pdf")
     return buffer_fig
-        
-with st.spinner():
-    st.subheader('Downloads')
-    #
+
+#gen list of figures
+@st.cache_data()
+def gen_pdf_list(graph_title='NN'):
+    pdf_list = []
+    # gen amenity corrs
     fig_corr_pdf = gen_pdf(fig_corr)
     fig_corr_pdf_name = f"Correlation loss in urban amenities in {graph_title}.pdf"
-    corrs24_fig_pdf = gen_pdf(corrs24_fig)
-    corrs24_fig_pdf_name = f"Correlation loss in daytime population in {graph_title}.pdf"
-    
-    st.download_button(
-        label=fig_corr_pdf_name,
-        data=fig_corr_pdf,
-        file_name=fig_corr_pdf_name,
-        mime="application/pdf",
-        )
+    corr_pdf_and_name = fig_corr_pdf, fig_corr_pdf_name
+    pdf_list.append(corr_pdf_and_name)
+    #gen daytime pop corrs by looping for all days
+    for day_id in ['WO','SA','SU']:
+        day_id_dict = {'WO':'Workday','SA':'Saturday','SU':'Sunday'}
+        my_day = day_id_dict[day_id]
+        for loop_filter in ['None','Total GFA in 2016']:
+            df_for_corr = corrs24_generate(df_h10=df_h10,df_ref=gdf24,my_reg=day_id,my_values='max',filter=loop_filter)
+            corr_24_fig = corrs24_plotter(df_for_corr[0],day=my_day,filter=loop_filter)
+            corr_24_fig_pdf = gen_pdf(corr_24_fig)
+            corr_24_fig_pdf_name = f"Corrloss in daytimepop in {graph_title} on {day_id} - filter: '{loop_filter}'.pdf"
+            pdf_and_name = corr_24_fig_pdf,corr_24_fig_pdf_name
+            pdf_list.append(pdf_and_name)
+    return pdf_list
 
-    st.download_button(
-        label=corrs24_fig_pdf_name,
-        data=corrs24_fig_pdf,
-        file_name=corrs24_fig_pdf_name,
-        mime="application/pdf",
-        )
+with st.spinner():
+    st.subheader('Downloads')
+    generate = st.checkbox('Generate research set for downloading')
+    if generate:
+        pdf_list = gen_pdf_list(graph_title=graph_title)
+        for pdf,pdf_name in pdf_list:
+            st.download_button(
+                        label=pdf_name,
+                        data=pdf,
+                        file_name=pdf_name,
+                        mime="application/pdf",
+                        )
+        st.success('PDFs generated!')
 
 #footer
 st.markdown('---')
