@@ -2,12 +2,15 @@
 import pandas as pd
 import geopandas as gpd
 import numpy as np
+from scipy import stats
 from scipy.stats import boxcox
+import statsmodels.api as sm
 import streamlit as st
 import shapely.speedups
 shapely.speedups.enable()
 import plotly.express as px
 import plotly.graph_objs as go
+from plotly.subplots import make_subplots
 px.set_mapbox_access_token(st.secrets['MAPBOX_TOKEN'])
 my_style = st.secrets['MAPBOX_STYLE']
 from pathlib import Path
@@ -232,9 +235,7 @@ with st.expander('Sample checks', expanded=False):
     st.subheader('Sample checks')
     # stat checks here
     my_method = st.radio('Correlation method',('pearson','spearman'))
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-    df = plot.copy()
+    
     # select feat
     ycols = ['Urban amenities (OPC excluded)',
              'One person companies (OPC) in urban amenities']
@@ -242,34 +243,46 @@ with st.expander('Sample checks', expanded=False):
     xvalue = x1.selectbox('Choose X axis data',['Residential GFA','Total GFA'])
     yvalue = y1.selectbox('Choose y axis data',ycols)
     st.caption('Change H3-resolution for scatter plot using filter selectors')
-    # plots
-    trace1 = go.Scatter(
-        x=df[f'{xvalue} in 2000'],
-        y=df[f'{yvalue} in 2000'],
-        name='2000',
-        mode='markers',
-        marker=dict(
-                color='Brown',
-                size=7)
-    )
-    trace2 = go.Scatter(
-        x=df[f'{xvalue} in 2016'],
-        y=df[f'{yvalue} in 2016'],
-        name='2016',
-        yaxis='y2',
-        mode='markers',
-        marker=dict(
-                color='Orange',
-                size=7)
-    )
-    scat = make_subplots(specs=[[{"secondary_y": True}]],
-                            x_title=f'{xvalue}',y_title=f'{yvalue}')
-    scat.add_trace(trace1)
-    scat.add_trace(trace2,secondary_y=True)
-    if 'kuntani' not in globals():
-        kuntani = 'selected neighborhoods'
-    scat.update_layout(title=f"Scatter plot on resolution H{level} in {kuntani} for '{yvalue}' ")
+    
+    #make a copy for plot
+    df = plot.copy()
 
+    # Function to calculate trendline and get summary
+    def fit_trendline_and_summary(x, y):
+        X = sm.add_constant(x)
+        model = sm.OLS(y, X).fit()
+        return model
+
+    # Fitting trendlines and getting summaries
+    model_2000 = fit_trendline_and_summary(df[f'{xvalue} in 2000'], df[f'{yvalue} in 2000'])
+    model_2016 = fit_trendline_and_summary(df[f'{xvalue} in 2016'], df[f'{yvalue} in 2016'])
+
+    summary_2000 = model_2000.summary()
+    summary_2016 = model_2016.summary()
+
+    # Use model.params to get intercept and slope
+    intercept_2000, slope_2000 = model_2000.params
+    intercept_2016, slope_2016 = model_2016.params
+
+    # Preparing scatter plot
+    scat = make_subplots(specs=[[{"secondary_y": True}]], x_title=f'{xvalue}', y_title=f'{yvalue}')
+
+    # Adding scatter data
+    scat.add_trace(go.Scatter(x=df[f'{xvalue} in 2000'], y=df[f'{yvalue} in 2000'], name='2000', mode='markers', 
+                            marker=dict(color='Brown', size=7)))
+    scat.add_trace(go.Scatter(x=df[f'{xvalue} in 2016'], y=df[f'{yvalue} in 2016'], name='2016', mode='markers', 
+                            marker=dict(color='Orange', size=7), yaxis='y2'))
+
+    # Adding trendlines
+    scat.add_trace(go.Scatter(x=df[f'{xvalue} in 2000'], y=intercept_2000 + slope_2000 * df[f'{xvalue} in 2000'],
+                            mode='lines', name='Trendline 2000'))
+    scat.add_trace(go.Scatter(x=df[f'{xvalue} in 2016'], y=intercept_2016 + slope_2016 * df[f'{xvalue} in 2016'],
+                            mode='lines', name='Trendline 2016', yaxis='y2'))
+
+    # Update layout
+    scat.update_layout(title=f"Scatter plot on resolution H{level} in {kuntani} for '{yvalue}'")
+
+    #plot it
     st.plotly_chart(scat, use_container_width=True)
 
     #x
@@ -288,11 +301,19 @@ with st.expander('Sample checks', expanded=False):
     m2.metric(label=f"Sum of {xvalue} in 2016", value=f"{xvalue_2016sum}", delta=f"max_H{level}: {xvalue_2016max}")
     m3.metric(label=f"Sum of {yvalue} in 2000", value=f"{yvalue_2000sum}", delta=f"max_H{level}: {yvalue_2000max}")
     m4.metric(label=f"Sum of {yvalue} in 2016", value=f"{yvalue_2016sum}", delta=f"max_H{level}: {yvalue_2016max}")
-    #
+
+    # Displaying the summary of the trendlines
+    t1,t2 = st.columns(2)
+    t1.text("Trendline 2000 Summary:")
+    t1.text(summary_2000)
+
+    t2.text("Trendline 2016 Summary:")
+    t2.text(summary_2016)
+    st.markdown("---")
+
+    #for historgrams
     count_2000 = df[f'{xvalue} in 2000'].count()
     count_2016 = df[f'{xvalue} in 2016'].count()
-    
-    #st.markdown('---')
 
     # histogram for data in current resollution level --use only positive values
     df_ = df[(df.T != 0).any()][feat_list] #.drop(columns='geometry')
@@ -534,6 +555,7 @@ fig_corr.update_xaxes(type='category')
 
 with graph_place:
     st.plotly_chart(fig_corr, use_container_width=True)
+
 
 st.markdown('###')
 
