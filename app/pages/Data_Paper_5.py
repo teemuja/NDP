@@ -190,7 +190,7 @@ def carbon_vs_pois_scatter(case_data,
     fig = px.scatter(case_data, title=title,
                          x=x_col, y=y_col, color='cf_class', size=z_col,
                          log_y=False,
-                         hover_name='custom_hover_text',
+                         hover_name='clusterID',
                          labels={'cf_class': f'{cf_col} level'},
                          color_discrete_map=quartile_colormap
                          )
