@@ -18,13 +18,9 @@ button[title="View fullscreen"]{
 st.title('NDP Data Papers')
 
 header_ing = '''
-<p style="font-family:sans-serif; color:dimgrey; background-color: white; font-size: 24px;">
+<p style="font-family:sans-serif; color:dimgrey; background-color: white; font-size: 18px;">
 Naked Density Project (NDP) is a PhD research project by <a href="https://research.aalto.fi/en/persons/teemu-jama" target="_blank">Teemu Jama</a> in Aalto University Finland.  
 NDP project studies correlation between urban density and <a href="https://sdgs.un.org/goals" target="_blank">SDG-goals</a> by applying latest spatial data analytics and machine learning. \
 </p>
 '''
 st.markdown(header_ing, unsafe_allow_html=True)
-
-#add logo background
-from logo import logo
-logo.add_bg_from_local('NDP_500.png')
