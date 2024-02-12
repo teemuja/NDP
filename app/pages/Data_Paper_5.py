@@ -146,6 +146,7 @@ def spaces_csv_handler(file_name=None, folder_name="ndp", operation=None, data_f
     
 #plotter
 def carbon_vs_pois_scatter(case_data,
+                           hovername=None,
                            cf_col=None,
                            x_col=None,
                            y_col=None,
@@ -190,7 +191,7 @@ def carbon_vs_pois_scatter(case_data,
     fig = px.scatter(case_data, title=title,
                          x=x_col, y=y_col, color='cf_class', size=z_col,
                          log_y=False,
-                         hover_name='clusterID',
+                         hover_name=hovername,
                          labels={'cf_class': f'{cf_col} level'},
                          color_discrete_map=quartile_colormap
                          )
@@ -223,6 +224,7 @@ selected_urb_file = st.selectbox('Select sample file',filtered_names)
 
 if selected_urb_file != "...":
     cfua_data = spaces_csv_handler(file_name=f"ndp/cfua/{selected_urb_file}.csv",operation="download")
+    cfua_plot = cfua_data.drop(columns=['city','wkt'])
     dropcols = ['city','clusterID','wkt']
     cfua_df = cfua_data.drop(columns=dropcols)
     corr = cfua_df.corr()
@@ -237,7 +239,8 @@ if selected_urb_file != "...":
     
     if yax != xax:
         try:
-            scat_plot = carbon_vs_pois_scatter(cfua_df,
+            scat_plot = carbon_vs_pois_scatter(cfua_plot,
+                                hovername='clusterID',
                                 cf_col=cf,
                                 x_col=xax,
                                 y_col=yax,
