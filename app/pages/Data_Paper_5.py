@@ -288,8 +288,8 @@ def carbon_vs_pois_scatter(case_data,
                          hover_name=hovername,
                          labels={'cf_class': f'{cf_col} level'},
                          color_discrete_map=quartile_colormap,
-                         range_x=x_range,
-                         range_y=y_range
+                         range_x=[0,x_range],
+                         range_y=[0,y_range]
                          )
         
     fig.update_layout(
