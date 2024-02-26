@@ -283,7 +283,7 @@ def carbon_vs_pois_scatter(case_data,
 
     # Create the scatter plot
     fig = px.scatter(case_data, title=title,
-                         x=x_col, y=y_col, color='cf_class', size=z_col,
+                         x=x_col, y=y_col, color='cf_class', size=z_col*2, #size scaled
                          log_y=False,
                          hover_name=hovername,
                          labels={'cf_class': f'{cf_col} level'},
