@@ -268,8 +268,8 @@ def carbon_vs_pois_scatter(case_data,
     case_data['custom_hover_text'] = case_data.apply(lambda row: f"footprint {row[cf_col]}", axis=1)
 
     # Calculate 99th quantile and max values for x and y columns
-    x_99_quantile = case_data[x_col].quantile(0.99)
-    y_99_quantile = case_data[y_col].quantile(0.99)
+    x_99_quantile = case_data[x_col].quantile(0.90)
+    y_99_quantile = case_data[y_col].quantile(0.90)
     x_max = case_data[x_col].max()
     y_max = case_data[y_col].max()
 
