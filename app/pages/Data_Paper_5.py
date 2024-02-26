@@ -284,12 +284,20 @@ def carbon_vs_pois_scatter(case_data,
     min_size=5
     case_data['adjusted_size'] = case_data[z_col].apply(lambda x: max(x, min_size))
 
+    #hovers
+    hover_data = {column: True for column in [y_col, x_col, z_col]}
+
+    # Now, set all other columns to False
+    for column in case_data.columns:
+        if column not in hover_data:
+            hover_data[column] = False
+
     # Create the scatter plot
     fig = px.scatter(case_data, title=title,
                          x=x_col, y=y_col, color='cf_class', size='adjusted_size',
                          log_y=False,
                          hover_name=hovername,
-                         hover_data = {column: True for column in [y_col, x_col, z_col]},
+                         hover_data = hover_data,
                          labels={'cf_class': f'{cf_col} level'},
                          color_discrete_map=quartile_colormap,
                          range_x=x_range,
