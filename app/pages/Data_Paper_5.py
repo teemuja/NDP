@@ -267,6 +267,20 @@ def carbon_vs_pois_scatter(case_data,
     # Create a new column for custom hover text
     case_data['custom_hover_text'] = case_data.apply(lambda row: f"footprint {row[cf_col]}", axis=1)
 
+    # Calculate 99th quantile and max values for x and y columns
+    x_99_quantile = case_data[x_col].quantile(0.99)
+    y_99_quantile = case_data[y_col].quantile(0.99)
+    x_max = case_data[x_col].max()
+    y_max = case_data[y_col].max()
+
+    # Determine if the difference between max and 99th quantile is large for x and y
+    x_large_diff = (x_max - x_99_quantile) > (x_99_quantile * 0.1) # threshold 10% of the 99th quantile
+    y_large_diff = (y_max - y_99_quantile) > (y_99_quantile * 0.1)
+
+    # Set axis range based on the above logic
+    x_range = [None, x_99_quantile if x_large_diff else x_max]
+    y_range = [None, y_99_quantile if y_large_diff else y_max]
+
     # Create the scatter plot
     fig = px.scatter(case_data, title=title,
                          x=x_col, y=y_col, color='cf_class', size=z_col,
@@ -274,11 +288,9 @@ def carbon_vs_pois_scatter(case_data,
                          hover_name=hovername,
                          labels={'cf_class': f'{cf_col} level'},
                          color_discrete_map=quartile_colormap,
-                         category_orders={"cf_class":['Top','High','Low','Bottom']}
+                         range_x=x_range,
+                         range_y=y_range
                          )
-    
-    #if selected_urb_file == "All_samples":
-    #    fig.update_layout(xaxis_range=[0,400])
         
     fig.update_layout(
         margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=700,
