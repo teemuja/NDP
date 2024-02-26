@@ -268,18 +268,18 @@ def carbon_vs_pois_scatter(case_data,
     case_data['custom_hover_text'] = case_data.apply(lambda row: f"footprint {row[cf_col]}", axis=1)
 
     # Calculate 99th quantile and max values for x and y columns
-    x_99_quantile = case_data[x_col].quantile(0.90)
-    y_99_quantile = case_data[y_col].quantile(0.90)
+    x_quantile = case_data[x_col].quantile(0.90)
+    y_quantile = case_data[y_col].quantile(0.90)
     x_max = case_data[x_col].max()
     y_max = case_data[y_col].max()
 
     # Determine if the difference between max and 99th quantile is large for x and y
-    x_large_diff = (x_max - x_99_quantile) > (x_99_quantile * 0.1) # threshold 10% of the 99th quantile
-    y_large_diff = (y_max - y_99_quantile) > (y_99_quantile * 0.1)
+    x_large_diff = (x_max - x_quantile) > (x_quantile * 0.1) # threshold 10% of the 99th quantile
+    y_large_diff = (y_max - y_quantile) > (y_quantile * 0.1)
 
     # Set axis range based on the above logic
-    x_range = [0, x_99_quantile if x_large_diff else x_max]
-    y_range = [0, y_99_quantile if y_large_diff else y_max]
+    x_range = [-5, x_quantile if x_large_diff else x_max]
+    y_range = [0, y_quantile if y_large_diff else y_max]
 
     min_size=5
     case_data['adjusted_size'] = case_data[z_col].apply(lambda x: max(x, min_size))
