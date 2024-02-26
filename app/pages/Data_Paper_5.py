@@ -278,8 +278,8 @@ def carbon_vs_pois_scatter(case_data,
     y_large_diff = (y_max - y_99_quantile) > (y_99_quantile * 0.1)
 
     # Set axis range based on the above logic
-    x_range = [None, x_99_quantile if x_large_diff else x_max]
-    y_range = [None, y_99_quantile if y_large_diff else y_max]
+    x_range = [0, x_99_quantile if x_large_diff else x_max]
+    y_range = [0, y_99_quantile if y_large_diff else y_max]
 
     # Create the scatter plot
     fig = px.scatter(case_data, title=title,
@@ -288,8 +288,8 @@ def carbon_vs_pois_scatter(case_data,
                          hover_name=hovername,
                          labels={'cf_class': f'{cf_col} level'},
                          color_discrete_map=quartile_colormap,
-                         range_x=[0,x_range],
-                         range_y=[0,y_range]
+                         range_x=x_range,
+                         range_y=y_range
                          )
         
     fig.update_layout(
