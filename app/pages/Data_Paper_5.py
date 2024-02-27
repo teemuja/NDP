@@ -231,6 +231,7 @@ def carbon_vs_pois_scatter(case_data,
                            x_col=None,
                            y_col=None,
                            z_col=None,
+                           scale_axis=True,
                            title=None):
 
     # Define fixed labels and colors
@@ -267,20 +268,25 @@ def carbon_vs_pois_scatter(case_data,
     # Create a new column for custom hover text
     case_data['custom_hover_text'] = case_data.apply(lambda row: f"footprint {row[cf_col]}", axis=1)
 
-    # Calculate 99th quantile and max values for x and y columns
-    x_quantile = case_data[x_col].quantile(0.90)
-    y_quantile = case_data[y_col].quantile(0.90)
-    x_max = case_data[x_col].max()
-    y_max = case_data[y_col].max()
+    if scale_axis:
+        # Calculate 99th quantile and max values for x and y columns
+        x_quantile = case_data[x_col].quantile(0.90)
+        y_quantile = case_data[y_col].quantile(0.90)
+        x_max = case_data[x_col].max()
+        y_max = case_data[y_col].max()
 
-    # Determine if the difference between max and 99th quantile is large for x and y
-    x_large_diff = (x_max - x_quantile) > (x_quantile * 0.1) # threshold 10% of the 99th quantile
-    y_large_diff = (y_max - y_quantile) > (y_quantile * 0.1)
+        # Determine if the difference between max and 99th quantile is large for x and y
+        x_large_diff = (x_max - x_quantile) > (x_quantile * 0.1) # threshold 10% of the 99th quantile
+        y_large_diff = (y_max - y_quantile) > (y_quantile * 0.1)
 
-    # Set axis range based on the above logic
-    x_range = [-5, x_quantile if x_large_diff else x_max]
-    y_range = [0, y_quantile if y_large_diff else y_max]
+        # Set axis range based on the above logic
+        x_range = [-5, x_quantile if x_large_diff else x_max]
+        y_range = [0, y_quantile if y_large_diff else y_max]
+    else:
+        x_range = None
+        y_range = None
 
+    #scale marker size
     min_size=5
     case_data['adjusted_size'] = case_data[z_col].apply(lambda x: max(x, min_size))
 
@@ -315,11 +321,13 @@ def carbon_vs_pois_scatter(case_data,
 if selected_urb_file != "...":
     if selected_urb_file != "All_samples":
         cfua_data = spaces_csv_handler(file_name=f"ndp/cfua/{selected_urb_file}.csv",operation="download")
-    else:
+        scale_axis = False
+    else: #get all city samples and concat
         cfua_data = pd.DataFrame()
         for name in filtered_names:
             sample_df = spaces_csv_handler(file_name=f"ndp/cfua/{name}.csv",operation="download")
             cfua_data = pd.concat([cfua_data,sample_df])
+        scale_axis = True
       
     cfua_plot = cfua_data.drop(columns=['city','wkt'])
     dropcols = ['city','clusterID','wkt']
@@ -342,6 +350,7 @@ if selected_urb_file != "...":
                                 x_col=xax,
                                 y_col=yax,
                                 z_col=size,
+                                scale_axis=scale_axis,
                                 title="CFUA scatter")
             st.plotly_chart(scat_plot, use_container_width=True, config = {'displayModeBar': False} )
             
@@ -356,20 +365,67 @@ if selected_urb_file != "...":
             
     with st.expander("Correlation matrix",expanded=True):
         colorscale = [
-            [0.0, 'cornflowerblue'],
-            [0.8/3.0, 'skyblue'],
-            [0.8/2.0, 'orange'],
-            [1.0, 'darkred']
-        ]
-        trace = go.Heatmap(z=corr.values,
-                        x=corr.index.values,
-                        y=corr.columns.values,
-                        colorscale=colorscale)
+                [0.0, 'cornflowerblue'],
+                [0.8/3.0, 'skyblue'],
+                [0.8/2.0, 'orange'],
+                [1.0, 'darkred']
+            ]
+        def single_corr_matrix(df,color_scale,sample_name):
+                corr = df.corr() #just one city..
+                trace = go.Heatmap(z=corr.values,
+                                x=corr.index.values,
+                                y=corr.columns.values,
+                                colorscale=color_scale)
+                fig = go.Figure()
+                fig.add_trace(trace)
+                fig.update_layout(margin={"r": 10, "t": 50, "l": 10, "b": 10},height=800, title_text=sample_name)
+                return fig
+            
+        def facet_corr_matrix(df,color_scale):
+            
+            cities = df['city'].unique()
+            num_cities = len(cities)
 
-        fig = go.Figure()
-        fig.add_trace(trace)
-        fig.update_layout(margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=700)
-        st.plotly_chart(fig, use_container_width=True, config = {'displayModeBar': False} )
+            # Setting up the subplot grid
+            fig = make_subplots(rows=1, cols=num_cities, subplot_titles=cities)
+
+            # Iterate over each city to plot its heatmap
+            for i, city in enumerate(cities, start=1):
+                # Filter the dataframe for the current city
+                df_city = df[df['city'] == city]
+                
+                # Compute correlation or use your predefined `corr` for the city
+                corr_city = df_city.drop(columns=['city','clusterID','wkt']).corr()
+                
+                # Create a heatmap trace for the current city
+                trace = go.Heatmap(z=corr_city.values,
+                                x=corr_city.columns.values,
+                                y=corr_city.index.values,
+                                colorscale=color_scale)  # Define your colorscale
+                
+                # Add trace to the correct subplot
+                fig.add_trace(trace, row=1, col=i)
+
+                # Update y-axis to show tick labels only for the first subplot
+                fig.update_yaxes(showticklabels=(i == 1), row=1, col=i)
+
+            # Update layout
+            fig.update_layout(height=800, width=300*num_cities, title_text="By City",
+                              margin={"r": 10, "t": 50, "l": 10, "b": 10})
+            
+            return fig
+    
+        if selected_urb_file == "All_samples":
+            #all samples
+            fig = single_corr_matrix(cfua_df,color_scale=colorscale,sample_name=selected_urb_file)
+            st.plotly_chart(fig, use_container_width=True, config = {'displayModeBar': False} )
+            #..and by city
+            fig = facet_corr_matrix(cfua_data,color_scale=colorscale)
+            st.plotly_chart(fig, use_container_width=True, config = {'displayModeBar': False} )
+            
+        else:
+            fig = single_corr_matrix(cfua_df,color_scale=colorscale,sample_name=selected_urb_file)
+            st.plotly_chart(fig, use_container_width=True, config = {'displayModeBar': False} )
 
 #footer
 st.markdown('---')
