@@ -8,6 +8,7 @@ import re
 import plotly.express as px
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
+import pingouin as pg
 
 
 px.set_mapbox_access_token(st.secrets['MAPBOX_TOKEN'])
@@ -370,57 +371,76 @@ if selected_urb_file != "...":
                 [0.8/2.0, 'orange'],
                 [1.0, 'darkred']
             ]
-        def single_corr_matrix(df,color_scale,sample_name):
-                corr = df.corr() #just one city..
-                trace = go.Heatmap(z=corr.values,
-                                x=corr.index.values,
-                                y=corr.columns.values,
-                                colorscale=color_scale)
-                fig = go.Figure()
-                fig.add_trace(trace)
-                fig.update_layout(margin={"r": 10, "t": 50, "l": 10, "b": 10},height=800, title_text=sample_name)
-                return fig
+
+        def single_corr_matrix(df, color_scale, sample_name, control_var=None):
+            # Validate control_var
+            if control_var and control_var not in df.columns:
+                st.warning("Control variable {control_var} not found in DataFrame columns.")
+                raise ValueError(f"Control variable {control_var} not found in DataFrame columns.")
             
-        def facet_corr_matrix(df,color_scale):
+            # Compute partial correlations if control_var is specified
+            if control_var:
+                # Initialize an empty DataFrame for partial correlations
+                partial_corrs = df.corr()  # Starting with full correlation as a template for indices
+                for col1 in df.columns:
+                    for col2 in df.columns:
+                        if col1 != col2:
+                            # Compute partial correlation, excluding control_var from analysis if it matches either column
+                            if col1 == control_var or col2 == control_var:
+                                partial_corrs.loc[col1, col2] = df[[col1, col2]].corr().iloc[0, 1]
+                            else:
+                                partial_corr_result = pg.partial_corr(data=df, x=col1, y=col2, covar=control_var)
+                                partial_corrs.loc[col1, col2] = partial_corr_result['r'].values[0]
+                        else:
+                            # Set diagonal to 1 for self-correlation
+                            partial_corrs.loc[col1, col2] = 1.0
+                # Remove the control_var from the correlation matrix
+                partial_corrs = partial_corrs.drop(index=control_var, columns=control_var, errors='ignore')
+                corr = partial_corrs
             
-            cities = df['city'].unique()
-            num_cities = len(cities)
-
-            # Setting up the subplot grid
-            fig = make_subplots(rows=1, cols=num_cities, subplot_titles=cities)
-
-            # Iterate over each city to plot its heatmap
-            for i, city in enumerate(cities, start=1):
-                # Filter the dataframe for the current city
-                df_city = df[df['city'] == city]
-                
-                # Compute correlation or use your predefined `corr` for the city
-                corr_city = df_city.drop(columns=['city','clusterID','wkt']).corr()
-                
-                # Create a heatmap trace for the current city
-                trace = go.Heatmap(z=corr_city.values,
-                                x=corr_city.columns.values,
-                                y=corr_city.index.values,
-                                colorscale=color_scale)  # Define your colorscale
-                
-                # Add trace to the correct subplot
-                fig.add_trace(trace, row=1, col=i)
-
-                # Update y-axis to show tick labels only for the first subplot
-                fig.update_yaxes(showticklabels=(i == 1), row=1, col=i)
-
-            # Update layout
-            fig.update_layout(height=800, width=300*num_cities, title_text="By City",
-                              margin={"r": 10, "t": 50, "l": 10, "b": 10})
+            else:
+                # Compute regular correlation if no control_var specified
+                corr = df.corr()
             
+            trace = go.Heatmap(z=corr.values,
+                            x=corr.index.values,
+                            y=corr.columns.values,
+                            colorscale=color_scale)
+            fig = go.Figure()
+            fig.add_trace(trace)
+            fig.update_layout(margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=800, title_text=f"{sample_name}, income level controlled")
+            return fig
+
+            
+        def facet_corr_matrix_by_city(df, color_scale, control_var=None):
+            unique_cities = df['city'].unique()
+            n = len(unique_cities)
+            
+            # Create subplot layout: adjust rows and cols as per your preference
+            rows = int(n**0.5) + (1 if n % int(n**0.5) > 0 else 0)
+            cols = int(n / rows) + (n % rows > 0)
+            
+            fig = make_subplots(rows=rows, cols=cols, subplot_titles=unique_cities)
+            
+            for i, city in enumerate(unique_cities, start=1):
+                city_df = df[df['city'] == city]
+                heatmap_fig = single_corr_matrix(city_df.drop(columns=['city','clusterID','wkt']), color_scale, city, control_var)
+                
+                # For each subplot, add the heatmap. Note: we need to extract the trace from heatmap_fig
+                for trace in heatmap_fig.data:
+                    trace.showscale = False
+                    fig.add_trace(trace, row=(i-1)//cols + 1, col=(i-1) % cols + 1)
+            
+            fig.update_layout(height=800 * rows, width=500 * cols, showlegend=False,
+                              title_text="Correlation Heatmaps by City, income level not controlled")
             return fig
     
         if selected_urb_file == "All_samples":
-            #all samples
-            fig = single_corr_matrix(cfua_df,color_scale=colorscale,sample_name=selected_urb_file)
+            fig = single_corr_matrix(cfua_df,color_scale=colorscale,sample_name=selected_urb_file,
+                                     control_var='Income Level decile')
             st.plotly_chart(fig, use_container_width=True, config = {'displayModeBar': False} )
             #..and by city
-            fig = facet_corr_matrix(cfua_data,color_scale=colorscale)
+            fig = facet_corr_matrix_by_city(cfua_data,color_scale=colorscale,control_var=None) #not big enough sample
             st.plotly_chart(fig, use_container_width=True, config = {'displayModeBar': False} )
             
         else:
