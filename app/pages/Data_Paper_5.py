@@ -340,7 +340,7 @@ if selected_urb_file != "...":
     yax = c1.selectbox('Density (y)',cfua_df.columns.tolist()[:3],index=2)
     xax = c2.selectbox('Building types (x)',cfua_df.columns.tolist()[3:8],index=3)
     size = c3.selectbox('Amenities (size)',cfua_df.columns.tolist()[8:11],index=0)
-    cf = c4.selectbox('CF (color)',cfua_df.columns.tolist()[11:],index=1)
+    cf = c4.selectbox('CF (color)',cfua_df.columns.tolist()[15:],index=1)
     
     
     if yax != xax:
