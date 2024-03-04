@@ -1,3 +1,3 @@
 # NDP data papers
 
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://teemuja-ndp.streamlitapp.com/)
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://ndp-rd.streamlitapp.com/)
