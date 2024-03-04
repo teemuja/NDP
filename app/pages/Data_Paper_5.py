@@ -375,12 +375,12 @@ if selected_urb_file != "...":
     #cols for features
     density_cols = cfua_df.drop(columns='clusterID').columns.tolist()[:3]
     land_use_cols = cfua_df.drop(columns='clusterID').columns.tolist()[3:8]
-    amenity_cols = cfua_df.drop(columns='clusterID').columns.tolist()[8:13]
+    amenity_cols = cfua_df.drop(columns='clusterID').columns.tolist()[8:11]
     cf_cols = cfua_df.drop(columns='clusterID').columns.tolist()[13:]
 
     c1,c2,c3,c4 = st.columns(4)
-    yax = c1.selectbox('Density (y)',density_cols,index=2)
-    xax = c2.selectbox('Land-use (x)',land_use_cols,index=4)
+    yax = c1.selectbox('Density metric (y)',density_cols,index=2)
+    xax = c2.selectbox('Land-use index (x)',land_use_cols,index=4)
     size = c3.selectbox('Amenity count (size)',amenity_cols,index=0)
     cf = c4.selectbox('CF-class (color)',cf_cols,index=0)
     
