@@ -163,6 +163,16 @@ selectbox_names.insert(0,"...")
 selectbox_names.append("All_samples")
 selected_urb_file = st.selectbox('Select sample file',selectbox_names)
 
+
+# Shannon index for a row
+def shannon_index(row):
+    # Filter out zero values to avoid log(0)
+    filtered_row = row[row > 0]
+    total = filtered_row.sum()
+    proportions = filtered_row / total
+    shannon_index = -np.sum(proportions * np.log(proportions))
+    return shannon_index
+
 #map plotter
 from shapely import wkt
 def plot_sample_areas(df,cf_col="Total footprint"):
@@ -333,15 +343,20 @@ if selected_urb_file != "...":
     cfua_plot = cfua_data.drop(columns=['city','wkt'])
     dropcols = ['city','clusterID','wkt']
     cfua_df = cfua_data.drop(columns=dropcols)
-    corr = cfua_df.corr()
-    
+
+    #cols for features
+    density_cols = cfua_df.columns.tolist()[:3]
+    land_use_cols = cfua_df.columns.tolist()[3:7] #building types except "other"
+    amenity_cols = cfua_df.columns.tolist()[8:12]
+    cf_cols = cfua_df.columns.tolist()[14:]
+    #add shannon index as mixed land use indicator
+    cfua_df['diversity'] = cfua_df[land_use_cols].apply(shannon_index, axis=1)
+
     c1,c2,c3,c4 = st.columns(4)
-    
-    yax = c1.selectbox('Density (y)',cfua_df.columns.tolist()[:3],index=2)
-    xax = c2.selectbox('Building types (x)',cfua_df.columns.tolist()[3:8],index=2)
-    size = c3.selectbox('Amenities (size)',cfua_df.columns.tolist()[8:12],index=0)
-    cf = c4.selectbox('CF (color)',cfua_df.columns.tolist()[14:],index=0)
-    
+    yax = c1.selectbox('Density (y)',density_cols,index=2)
+    xax = c2.selectbox('Land-use (x)',land_use_cols + ['diversity'],index=2)
+    size = c3.selectbox('Amenities (size)',amenity_cols,index=0)
+    cf = c4.selectbox('CF (color)',cf_cols,index=0)
     
     if yax != xax:
         try:
@@ -397,10 +412,12 @@ if selected_urb_file != "...":
                 # Remove the control_var from the correlation matrix
                 partial_corrs = partial_corrs.drop(index=control_var, columns=control_var, errors='ignore')
                 corr = partial_corrs
+                control_var_text = "income level controlled"
             
             else:
                 # Compute regular correlation if no control_var specified
                 corr = df.corr()
+                control_var_text = "income level not controlled"
             
             trace = go.Heatmap(z=corr.values,
                             x=corr.index.values,
@@ -408,7 +425,7 @@ if selected_urb_file != "...":
                             colorscale=color_scale)
             fig = go.Figure()
             fig.add_trace(trace)
-            fig.update_layout(margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=800, title_text=f"{sample_name}, income level controlled")
+            fig.update_layout(margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=800, title_text=f"{sample_name}, {control_var_text}")
             return fig
 
             
