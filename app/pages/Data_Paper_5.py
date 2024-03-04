@@ -284,19 +284,20 @@ def carbon_vs_pois_scatter(case_data_in,
     case_data['custom_hover_text'] = case_data.apply(lambda row: f"footprint {row[cf_col]}", axis=1)
 
     if scale_axis:
+        buff = 1.1
         # Calculate 99th quantile and max values for x and y columns
-        x_quantile = case_data[x_col].quantile(0.90)
-        y_quantile = case_data[y_col].quantile(0.90)
+        x_quantile = case_data[x_col].quantile(0.95)
+        y_quantile = case_data[y_col].quantile(0.95)
         x_max = case_data[x_col].max()
         y_max = case_data[y_col].max()
 
         # Determine if the difference between max and 99th quantile is large for x and y
-        x_large_diff = (x_max - x_quantile) > (x_quantile * 0.1) # threshold 10% of the 99th quantile
-        y_large_diff = (y_max - y_quantile) > (y_quantile * 0.1)
+        x_large_diff = (x_max - x_quantile) > (x_quantile * 0.3) # threshold n% of the 95th quantile
+        y_large_diff = (y_max - y_quantile) > (y_quantile * 0.3)
 
         # Set axis range based on the above logic
-        x_range = [-5, x_quantile if x_large_diff else x_max]
-        y_range = [0, y_quantile if y_large_diff else y_max]
+        x_range = [-5, (x_quantile if x_large_diff else x_max) * buff]
+        y_range = [0, (y_quantile if y_large_diff else y_max) * buff]
     else:
         x_range = None
         y_range = None
@@ -304,8 +305,6 @@ def carbon_vs_pois_scatter(case_data_in,
     #scale marker sizes
     min_size=50
     max_size=500
-    #case_data['adjusted_size'] = case_data[z_col].apply(lambda x: max(x, min_size))
-
     # Initialize the scaler with the desired min and max sizes
     scaler = MinMaxScaler(feature_range=(min_size, max_size))
     # Fit the scaler to your data and transform the z_col to the scaled sizes
@@ -326,7 +325,7 @@ def carbon_vs_pois_scatter(case_data_in,
                          log_y=False,
                          hover_name=hovername,
                          hover_data = hover_data,
-                         labels={'cf_class': f'{cf_col} level'},
+                         labels={'cf_class': f'{cf_col} level','mixed-use':'mixed-use index'},
                          category_orders={"cf_class": ["Top", "High", "Low", "Bottom"]},
                          color_discrete_map=quartile_colormap,
                          range_x=x_range,
@@ -340,7 +339,10 @@ def carbon_vs_pois_scatter(case_data_in,
 
     return fig
 
-#plot
+
+
+
+#----------------------------------- MAIN ----------------------------------------
 if selected_urb_file != "...":
     if selected_urb_file != "All_samples":
         cfua_data = spaces_csv_handler(file_name=f"ndp/cfua/{selected_urb_file}.csv",operation="download")
@@ -353,31 +355,32 @@ if selected_urb_file != "...":
         scale_axis = True
 
     #add shannon index as mixed land use indicator
-    land_use_cols = ['residential-small','residential-large','commercial','public']
+    cfua_data['residential-all'] = cfua_data['residential-small'] + cfua_data['residential-large']
+    land_use_cols = ['residential-all','commercial','public']
     def diversity_index(df_in,use_cols):
         df = df_in.copy()
         df['shannon_index'] = round(df[use_cols].apply(shannon_index, axis=1),3)
         min_shannon = df['shannon_index'].min()
         max_shannon = df['shannon_index'].max()
-        df_in['diversity'] = round(((df['shannon_index'] - min_shannon) / (max_shannon - min_shannon)) * 100,2)
+        df_in['mixed-use'] = round(((df['shannon_index'] - min_shannon) / (max_shannon - min_shannon)) * 100,2)
         orig_cols = list(df_in.columns)
-        orig_cols.insert(9, orig_cols.pop(orig_cols.index('diversity')))
+        orig_cols.insert(9, orig_cols.pop(orig_cols.index('mixed-use')))
         df_out = df_in[orig_cols]
         return df_out
     cfua_data = diversity_index(cfua_data,use_cols=land_use_cols)
 
-    dropcols = ['city','wkt']
+    dropcols = ['city','wkt','other','miscellaneous']
     cfua_df = cfua_data.drop(columns=dropcols)
 
     #cols for features
     density_cols = cfua_df.drop(columns='clusterID').columns.tolist()[:3]
-    land_use_cols = cfua_df.drop(columns='clusterID').columns.tolist()[3:8] #building types except "other"
-    amenity_cols = cfua_df.drop(columns='clusterID').columns.tolist()[9:13]
-    cf_cols = cfua_df.drop(columns='clusterID').columns.tolist()[15:]
+    land_use_cols = cfua_df.drop(columns='clusterID').columns.tolist()[3:8]
+    amenity_cols = cfua_df.drop(columns='clusterID').columns.tolist()[8:13]
+    cf_cols = cfua_df.drop(columns='clusterID').columns.tolist()[13:]
 
     c1,c2,c3,c4 = st.columns(4)
     yax = c1.selectbox('Density (y)',density_cols,index=2)
-    xax = c2.selectbox('Land-use (x)',land_use_cols,index=2)
+    xax = c2.selectbox('Land-use (x)',land_use_cols,index=4)
     size = c3.selectbox('Amenity count (size)',amenity_cols,index=0)
     cf = c4.selectbox('CF-class (color)',cf_cols,index=0)
     
