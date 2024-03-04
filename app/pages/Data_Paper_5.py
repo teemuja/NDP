@@ -9,6 +9,7 @@ import plotly.express as px
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 import pingouin as pg
+from sklearn.preprocessing import MinMaxScaler
 
 
 px.set_mapbox_access_token(st.secrets['MAPBOX_TOKEN'])
@@ -236,7 +237,7 @@ def plot_sample_areas(df,cf_col="Total footprint"):
     return fig_map
 
 #scat plotter
-def carbon_vs_pois_scatter(case_data,
+def carbon_vs_pois_scatter(case_data_in,
                            hovername=None,
                            cf_col=None,
                            x_col=None,
@@ -245,12 +246,15 @@ def carbon_vs_pois_scatter(case_data,
                            scale_axis=True,
                            title=None):
 
+    #make a copy
+    case_data = case_data_in.copy()
+
     # Define fixed labels and colors
     labels_colors = {
-        'Bottom': 'rgba(144, 238, 144, 0.6)',
+        'Bottom': 'rgba(35,140,35, 1)',
         'Low': 'rgba(254, 220, 120, 0.8)',
-        'High': 'rgba(254, 170, 70, 1)',
-        'Top': 'rgba(253, 100, 80, 1)'
+        'High': 'rgba(254, 170, 70, 0.8)',
+        'Top': 'rgba(255, 87, 51, 1)'
     }
 
     # Get unique sorted values
@@ -297,10 +301,17 @@ def carbon_vs_pois_scatter(case_data,
         x_range = None
         y_range = None
 
-    #scale marker size
-    min_size=5
-    case_data['adjusted_size'] = case_data[z_col].apply(lambda x: max(x, min_size))
+    #scale marker sizes
+    min_size=50
+    max_size=500
+    #case_data['adjusted_size'] = case_data[z_col].apply(lambda x: max(x, min_size))
 
+    # Initialize the scaler with the desired min and max sizes
+    scaler = MinMaxScaler(feature_range=(min_size, max_size))
+    # Fit the scaler to your data and transform the z_col to the scaled sizes
+    # Reshape(-1, 1) is needed because the data needs to be in a 2D array format
+    case_data['adjusted_size'] = scaler.fit_transform(case_data[z_col].values.reshape(-1, 1)).flatten()
+    
     #hovers
     hover_data = {column: True for column in [y_col, x_col, z_col]}
 
@@ -316,6 +327,7 @@ def carbon_vs_pois_scatter(case_data,
                          hover_name=hovername,
                          hover_data = hover_data,
                          labels={'cf_class': f'{cf_col} level'},
+                         category_orders={"cf_class": ["Top", "High", "Low", "Bottom"]},
                          color_discrete_map=quartile_colormap,
                          range_x=x_range,
                          range_y=y_range
@@ -339,39 +351,46 @@ if selected_urb_file != "...":
             sample_df = spaces_csv_handler(file_name=f"ndp/cfua/{name}.csv",operation="download")
             cfua_data = pd.concat([cfua_data,sample_df])
         scale_axis = True
-      
-    cfua_plot = cfua_data.drop(columns=['city','wkt'])
-    dropcols = ['city','clusterID','wkt']
+
+    #add shannon index as mixed land use indicator
+    land_use_cols = ['residential-small','residential-large','commercial','public']
+    def diversity_index(df_in,use_cols):
+        df = df_in.copy()
+        df['shannon_index'] = round(df[use_cols].apply(shannon_index, axis=1),3)
+        min_shannon = df['shannon_index'].min()
+        max_shannon = df['shannon_index'].max()
+        df_in['diversity'] = round(((df['shannon_index'] - min_shannon) / (max_shannon - min_shannon)) * 100,2)
+        orig_cols = list(df_in.columns)
+        orig_cols.insert(9, orig_cols.pop(orig_cols.index('diversity')))
+        df_out = df_in[orig_cols]
+        return df_out
+    cfua_data = diversity_index(cfua_data,use_cols=land_use_cols)
+
+    dropcols = ['city','wkt']
     cfua_df = cfua_data.drop(columns=dropcols)
 
     #cols for features
-    density_cols = cfua_df.columns.tolist()[:3]
-    land_use_cols = cfua_df.columns.tolist()[3:7] #building types except "other"
-    amenity_cols = cfua_df.columns.tolist()[8:12]
-    cf_cols = cfua_df.columns.tolist()[14:]
-    #add shannon index as mixed land use indicator
-    cfua_df['diversity'] = cfua_df[land_use_cols].apply(shannon_index, axis=1)
+    density_cols = cfua_df.drop(columns='clusterID').columns.tolist()[:3]
+    land_use_cols = cfua_df.drop(columns='clusterID').columns.tolist()[3:8] #building types except "other"
+    amenity_cols = cfua_df.drop(columns='clusterID').columns.tolist()[9:13]
+    cf_cols = cfua_df.drop(columns='clusterID').columns.tolist()[15:]
 
     c1,c2,c3,c4 = st.columns(4)
     yax = c1.selectbox('Density (y)',density_cols,index=2)
-    xax = c2.selectbox('Land-use (x)',land_use_cols + ['diversity'],index=2)
-    size = c3.selectbox('Amenities (size)',amenity_cols,index=0)
-    cf = c4.selectbox('CF (color)',cf_cols,index=0)
+    xax = c2.selectbox('Land-use (x)',land_use_cols,index=2)
+    size = c3.selectbox('Amenity count (size)',amenity_cols,index=0)
+    cf = c4.selectbox('CF-class (color)',cf_cols,index=0)
     
     if yax != xax:
-        try:
-            scat_plot = carbon_vs_pois_scatter(cfua_plot,
-                                hovername='clusterID',
-                                cf_col=cf,
-                                x_col=xax,
-                                y_col=yax,
-                                z_col=size,
-                                scale_axis=scale_axis,
-                                title="CFUA scatter")
-            st.plotly_chart(scat_plot, use_container_width=True, config = {'displayModeBar': False} )
-            
-        except:
-            st.warning('Cannot create scatter')
+        scat_plot = carbon_vs_pois_scatter(cfua_df,
+                            hovername='clusterID',
+                            cf_col=cf,
+                            x_col=xax,
+                            y_col=yax,
+                            z_col=size,
+                            scale_axis=scale_axis,
+                            title="CFUA scatter")
+        st.plotly_chart(scat_plot, use_container_width=True, config = {'displayModeBar': False} )
         
         if selected_urb_file != "All_samples":
             with st.expander('Cluster on map'):
@@ -380,12 +399,18 @@ if selected_urb_file != "...":
                 st.data_editor(cfua_df.drop(columns=cfua_df.columns[-1],  axis=1))
             
     with st.expander("Correlation matrix",expanded=True):
-        colorscale = [
+        colorscale_cont = [
                 [0.0, 'cornflowerblue'],
                 [0.8/3.0, 'skyblue'],
                 [0.8/2.0, 'orange'],
                 [1.0, 'darkred']
             ]
+        colorscale_dicr = [
+            [0.0, 'cornflowerblue'], [0.33, 'cornflowerblue'],
+            [0.33, 'skyblue'], [0.5, 'skyblue'],
+            [0.5, 'orange'], [0.66, 'orange'],
+            [0.66, 'darkred'], [1.0, 'darkred']
+        ]
 
         def single_corr_matrix(df, color_scale, sample_name, control_var=None):
             # Validate control_var
@@ -397,6 +422,7 @@ if selected_urb_file != "...":
             if control_var:
                 # Initialize an empty DataFrame for partial correlations
                 partial_corrs = df.corr()  # Starting with full correlation as a template for indices
+                corr_result_df = pd.DataFrame() #df to concat p-value results
                 for col1 in df.columns:
                     for col2 in df.columns:
                         if col1 != col2:
@@ -404,11 +430,14 @@ if selected_urb_file != "...":
                             if col1 == control_var or col2 == control_var:
                                 partial_corrs.loc[col1, col2] = df[[col1, col2]].corr().iloc[0, 1]
                             else:
-                                partial_corr_result = pg.partial_corr(data=df, x=col1, y=col2, covar=control_var)
-                                partial_corrs.loc[col1, col2] = partial_corr_result['r'].values[0]
+                                partial_corr_result_df = pg.partial_corr(data=df, x=col1, y=col2, covar=control_var)
+                                partial_corrs.loc[col1, col2] = partial_corr_result_df['r'].values[0]
+                                corr_result_df = pd.concat([corr_result_df,partial_corr_result_df])
+                                
                         else:
                             # Set diagonal to 1 for self-correlation
                             partial_corrs.loc[col1, col2] = 1.0
+
                 # Remove the control_var from the correlation matrix
                 partial_corrs = partial_corrs.drop(index=control_var, columns=control_var, errors='ignore')
                 corr = partial_corrs
@@ -418,6 +447,7 @@ if selected_urb_file != "...":
                 # Compute regular correlation if no control_var specified
                 corr = df.corr()
                 control_var_text = "income level not controlled"
+                corr_result_df = None
             
             trace = go.Heatmap(z=corr.values,
                             x=corr.index.values,
@@ -426,7 +456,7 @@ if selected_urb_file != "...":
             fig = go.Figure()
             fig.add_trace(trace)
             fig.update_layout(margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=800, title_text=f"{sample_name}, {control_var_text}")
-            return fig
+            return fig, corr_result_df
 
             
         def facet_corr_matrix_by_city(df, color_scale, control_var=None):
@@ -441,8 +471,8 @@ if selected_urb_file != "...":
             
             for i, city in enumerate(unique_cities, start=1):
                 city_df = df[df['city'] == city]
-                heatmap_fig = single_corr_matrix(city_df.drop(columns=['city','clusterID','wkt']), color_scale, city, control_var)
-                
+                heatmap_fig, corr_df = single_corr_matrix(city_df.drop(columns=['city','clusterID','wkt']), color_scale, city, control_var)
+                del corr_df
                 # For each subplot, add the heatmap. Note: we need to extract the trace from heatmap_fig
                 for trace in heatmap_fig.data:
                     trace.showscale = False
@@ -453,16 +483,27 @@ if selected_urb_file != "...":
             return fig
     
         if selected_urb_file == "All_samples":
-            fig = single_corr_matrix(cfua_df,color_scale=colorscale,sample_name=selected_urb_file,
-                                     control_var='Income Level decile')
-            st.plotly_chart(fig, use_container_width=True, config = {'displayModeBar': False} )
+            corvar = st.toggle('Income level controlled')
+            if corvar:
+                fig, corr_df = single_corr_matrix(cfua_df.drop(columns=['clusterID']),color_scale=colorscale_dicr,sample_name=selected_urb_file,
+                                        control_var='Income Level decile')
+                st.plotly_chart(fig, use_container_width=True, config = {'displayModeBar': False} )
+                st.markdown('**Partial correlation results**')
+                st.data_editor(corr_df.describe())
+            else:
+                fig, corr_df = single_corr_matrix(cfua_df.drop(columns=['clusterID']),color_scale=colorscale_dicr,sample_name=selected_urb_file,
+                                        control_var=None)
+                st.plotly_chart(fig, use_container_width=True, config = {'displayModeBar': False} )
+            
+
             #..and by city
-            fig = facet_corr_matrix_by_city(cfua_data,color_scale=colorscale,control_var=None) #not big enough sample
+            fig = facet_corr_matrix_by_city(cfua_data,color_scale=colorscale_dicr,control_var=None) #not big enough sample
             st.plotly_chart(fig, use_container_width=True, config = {'displayModeBar': False} )
             
         else:
-            fig = single_corr_matrix(cfua_df,color_scale=colorscale,sample_name=selected_urb_file)
+            fig, corr_df = single_corr_matrix(cfua_df.drop(columns=['clusterID']),color_scale=colorscale_dicr,sample_name=selected_urb_file)
             st.plotly_chart(fig, use_container_width=True, config = {'displayModeBar': False} )
+            
 
 #footer
 st.markdown('---')

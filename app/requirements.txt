@@ -8,3 +8,4 @@ osmnx
 momepy
 boto3
 pingouin
+scikit-learn
