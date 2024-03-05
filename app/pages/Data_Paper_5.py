@@ -354,6 +354,10 @@ if selected_urb_file != "...":
             cfua_data = pd.concat([cfua_data,sample_df])
         scale_axis = True
 
+    #change e to FAR and gfa to GFA if needed..
+    if 'e' in cfua_data.columns:
+        cfua_data.rename(columns={'e': 'FAR', 'gfa': 'GFA', 'numfloors': 'Floors'}, inplace=True)
+
     #add shannon index as mixed land use indicator
     cfua_data['residential-all'] = cfua_data['residential-small'] + cfua_data['residential-large']
     land_use_cols = ['residential-all','commercial','public']
