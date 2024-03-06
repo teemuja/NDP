@@ -47,7 +47,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 header = '<p style="font-family:sans-serif; color:grey; font-size: 12px;">\
-        NDP data paper #5 V1.1\
+        NDP data paper #5 V1.2\
         </p>'
 st.markdown(header, unsafe_allow_html=True)
 # plot size setup
@@ -208,6 +208,14 @@ def plot_sample_areas(df,cf_col="Total footprint"):
 
     # Assign quartile class
     case_data['cf_class'] = pd.cut(case_data[cf_col], bins=bin_edges, labels=labels, include_lowest=True)
+    #ensure all classes exist
+    for label in labels_colors.keys():
+        # Check if the label is already present
+        if label not in case_data['cf_class'].tolist():
+            # Create a dummy row DataFrame with the missing category
+            dummy_row_df = pd.DataFrame([{cf_col: None, 'cf_class': label}])
+            # Use pd.concat to append the dummy row DataFrame
+            case_data = pd.concat([case_data, dummy_row_df], ignore_index=True)
 
     fig_map = px.choropleth_mapbox(case_data,
                             geojson=case_data.geometry,
@@ -244,18 +252,11 @@ def carbon_vs_pois_scatter(case_data_in,
                            y_col=None,
                            z_col=None,
                            scale_axis=True,
+                           trendline=False,
                            title=None):
 
     #make a copy
     case_data = case_data_in.copy()
-
-    # Define fixed labels and colors
-    labels_colors = {
-        'Bottom': 'rgba(35,140,35, 1)',
-        'Low': 'rgba(254, 220, 120, 0.8)',
-        'High': 'rgba(254, 170, 70, 0.8)',
-        'Top': 'rgba(255, 87, 51, 1)'
-    }
 
     # Get unique sorted values
     sorted_unique_values = sorted(case_data[cf_col].unique())
@@ -269,6 +270,14 @@ def carbon_vs_pois_scatter(case_data_in,
     # Ensure unique bin edges
     bin_edges = np.unique(bin_edges)
 
+    # Define fixed labels and colors
+    labels_colors = {
+        'Bottom': 'rgba(35,140,35, 1)',
+        'Low': 'rgba(254, 220, 120, 0.8)',
+        'High': 'rgba(254, 170, 70, 0.8)',
+        'Top': 'rgba(255, 87, 51, 1)'
+    }
+    
     # Adjust the number of labels based on the number of bin edges
     num_labels = len(bin_edges) - 1
     labels = list(labels_colors.keys())[:num_labels]
@@ -276,9 +285,23 @@ def carbon_vs_pois_scatter(case_data_in,
     # Assign quartile class
     case_data['cf_class'] = pd.cut(case_data[cf_col], bins=bin_edges, labels=labels, include_lowest=True)
 
+    #ensure all classes exist
+    for label in labels_colors.keys():
+        # Check if the label is already present
+        if label not in case_data['cf_class'].tolist():
+            # Create a dummy row DataFrame with the missing category
+            dummy_row_df = pd.DataFrame([{cf_col: None, 'cf_class': label, x_col: None, y_col: None, z_col: 0}])
+            # Use pd.concat to append the dummy row DataFrame
+            case_data = pd.concat([case_data, dummy_row_df], ignore_index=True)
+
     # Dynamically create colormap for quartile classes used in cf_class
-    unique_labels = case_data['cf_class'].cat.categories
+    unique_labels = case_data['cf_class'].tolist()
     quartile_colormap = {label: labels_colors[label] for label in unique_labels}
+
+    #cat orders
+    desired_order = ["Top", "High", "Low", "Bottom"]
+    present_categories = case_data['cf_class'].tolist()
+    adjusted_category_orders = [cat for cat in desired_order if cat in present_categories]
 
     # Create a new column for custom hover text
     case_data['custom_hover_text'] = case_data.apply(lambda row: f"footprint {row[cf_col]}", axis=1)
@@ -312,12 +335,17 @@ def carbon_vs_pois_scatter(case_data_in,
     case_data['adjusted_size'] = scaler.fit_transform(case_data[z_col].values.reshape(-1, 1)).flatten()
     
     #hovers
-    hover_data = {column: True for column in [y_col, x_col, z_col]}
-
+    hover_data = {column: True for column in [z_col,'Income Level decile']}
     # Now, set all other columns to False
     for column in case_data.columns:
         if column not in hover_data:
             hover_data[column] = False
+
+    #trendline
+    if trendline:
+        trend_line="ols"
+    else:
+        trend_line=None
 
     # Create the scatter plot
     fig = px.scatter(case_data, title=title,
@@ -326,8 +354,9 @@ def carbon_vs_pois_scatter(case_data_in,
                          hover_name=hovername,
                          hover_data = hover_data,
                          labels={'cf_class': f'{cf_col} level','mixed-use':'mixed-use index'},
-                         category_orders={"cf_class": ["Top", "High", "Low", "Bottom"]},
+                         category_orders={"cf_class": adjusted_category_orders},
                          color_discrete_map=quartile_colormap,
+                         trendline=trend_line,
                          range_x=x_range,
                          range_y=y_range
                          )
@@ -373,7 +402,7 @@ if selected_urb_file != "...":
         return df_out
     cfua_data = diversity_index(cfua_data,use_cols=land_use_cols)
 
-    dropcols = ['city','wkt','other','miscellaneous']
+    dropcols = ['city','wkt','other','miscellaneous','residential-all']
     cfua_df = cfua_data.drop(columns=dropcols)
 
     #cols for features
@@ -389,6 +418,11 @@ if selected_urb_file != "...":
     cf = c4.selectbox('CF-class (color)',cf_cols,index=0)
     
     if yax != xax:
+        if selected_urb_file == "All_samples":
+            use_trendline = True
+        else:
+            use_trendline = False
+
         scat_plot = carbon_vs_pois_scatter(cfua_df,
                             hovername='clusterID',
                             cf_col=cf,
@@ -396,7 +430,9 @@ if selected_urb_file != "...":
                             y_col=yax,
                             z_col=size,
                             scale_axis=scale_axis,
+                            trendline=use_trendline,
                             title="CFUA scatter")
+        
         st.plotly_chart(scat_plot, use_container_width=True, config = {'displayModeBar': False} )
         
         if selected_urb_file != "All_samples":
