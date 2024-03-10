@@ -447,17 +447,6 @@ with tab2:
     selectbox_names.append("All_samples")
     selected_urb_file = st.selectbox('Select sample file',selectbox_names)
 
-
-    # Shannon index for a row
-    def shannon_index(row):
-        # Filter out zero values to avoid log(0)
-        filtered_row = row[row > 0]
-        total = filtered_row.sum()
-        proportions = filtered_row / total
-        shannon_index = -np.sum(proportions * np.log(proportions))
-        return shannon_index
-
-
     #map plotter 2
     def plot_sample_areas(df,cf_col="Total footprint"):
         #get gdf
@@ -508,6 +497,7 @@ with tab2:
                                 title="Sample areas of on map",
                                 color='cf_class',
                                 hover_name='clusterID',
+                                hover_data = ['area'],
                                 color_discrete_map=labels_colors,
                                 category_orders={"cf_class":['Top','High','Low','Bottom']},
                                 labels={'cf_class': f'{cf_col} level'},
@@ -538,6 +528,7 @@ with tab2:
                             z_col=None,
                             scale_axis=True,
                             trendline=False,
+                            bins=None,
                             title=None):
 
         #make a copy
@@ -549,12 +540,6 @@ with tab2:
         # Determine number of bins
         num_bins = min(len(sorted_unique_values), 4)  # Limit the number of bins to 4
 
-        # Generate bin edges ensuring they are unique and cover the range of values
-        bin_edges = np.percentile(case_data[cf_col], np.linspace(0, 100, num_bins + 1))
-
-        # Ensure unique bin edges
-        bin_edges = np.unique(bin_edges)
-
         # Define fixed labels and colors
         labels_colors = {
             'Bottom': 'rgba(35,140,35, 1)',
@@ -563,12 +548,19 @@ with tab2:
             'Top': 'rgba(255, 87, 51, 1)'
         }
         
-        # Adjust the number of labels based on the number of bin edges
-        num_labels = len(bin_edges) - 1
-        labels = list(labels_colors.keys())[:num_labels]
-
-        # Assign quartile class
-        case_data['cf_class'] = pd.cut(case_data[cf_col], bins=bin_edges, labels=labels, include_lowest=True)
+        if bins is None:
+            # Generate bin edges ensuring they are unique and cover the range of values
+            bin_edges = np.percentile(case_data[cf_col], np.linspace(0, 100, num_bins + 1))
+            # Adjust the number of labels based on the number of bin edges
+            num_labels = len(bin_edges) - 1
+            labels = list(labels_colors.keys())[:num_labels]
+            # Assign quartile class
+            case_data['cf_class'] = pd.cut(case_data[cf_col], bins=bin_edges, labels=labels, include_lowest=True)
+        else:
+            bin_edges = bins
+            num_labels = len(bin_edges) - 1
+            labels = list(labels_colors.keys())[:num_labels]
+            case_data['cf_class'] = pd.cut(case_data[cf_col], bins=bin_edges, labels=labels, include_lowest=True)
 
         #ensure all classes exist
         for label in labels_colors.keys():
@@ -579,8 +571,10 @@ with tab2:
                 # Use pd.concat to append the dummy row DataFrame
                 case_data = pd.concat([case_data, dummy_row_df], ignore_index=True)
 
+        # Filtering out nan values and ensuring only valid labels are included
+        unique_labels = [label for label in case_data['cf_class'].dropna().unique() if label in labels_colors]
+
         # Dynamically create colormap for quartile classes used in cf_class
-        unique_labels = case_data['cf_class'].tolist()
         quartile_colormap = {label: labels_colors[label] for label in unique_labels}
 
         #cat orders
@@ -620,7 +614,7 @@ with tab2:
         case_data['adjusted_size'] = scaler.fit_transform(case_data[z_col].values.reshape(-1, 1)).flatten()
         
         #hovers
-        hover_data = {column: True for column in [z_col,'Income Level decile']}
+        hover_data = {column: True for column in [z_col,'cf_class','Income Level decile']}
         # Now, set all other columns to False
         for column in case_data.columns:
             if column not in hover_data:
@@ -638,7 +632,7 @@ with tab2:
                             log_y=False,
                             hover_name=hovername,
                             hover_data = hover_data,
-                            labels={'cf_class': f'{cf_col} level','mixed-use':'mixed-use index'},
+                            labels={'cf_class': f'{cf_col} level'},
                             category_orders={"cf_class": adjusted_category_orders},
                             color_discrete_map=quartile_colormap,
                             trendline=trend_line,
@@ -657,24 +651,58 @@ with tab2:
 
 
     #----------------------------------- MAIN ----------------------------------------
-    if selected_urb_file != "...":
+    
+    #area calc
+    def calc_area(df_in):
+        df = df_in.copy()
+        df['geometry'] = df.wkt.apply(wkt.loads)
+        gdf = gpd.GeoDataFrame(df,geometry='geometry',crs=4326)
+        #utm..
+        utm = gdf.estimate_utm_crs()
+        df_in['area'] = round(gdf.to_crs(utm).area,-3)
+        orig_cols = list(df_in.columns)
+        orig_cols.insert(2, orig_cols.pop(orig_cols.index('area')))
+        df_out = df_in[orig_cols]
+        return df_out
+    
+    # Shannon index for a row
+    def shannon_index(row):
+        # Filter out zero values to avoid log(0)
+        filtered_row = row[row > 0]
+        total = filtered_row.sum()
+        proportions = filtered_row / total
+        shannon_index = -np.sum(proportions * np.log(proportions))
+        return shannon_index
+    
+    @st.cache_data(max_entries=1)
+    def get_sample(selected_urb_file,filtered_names):
         if selected_urb_file != "All_samples":
             cfua_data = spaces_csv_handler(file_name=f"ndp/cfua/{selected_urb_file}.csv",operation="download")
+            cfua_data = calc_area(cfua_data)
             scale_axis = False
         else: #get all city samples and concat
             cfua_data = pd.DataFrame()
             for name in filtered_names:
                 sample_df = spaces_csv_handler(file_name=f"ndp/cfua/{name}.csv",operation="download")
+                sample_df = calc_area(sample_df)
                 cfua_data = pd.concat([cfua_data,sample_df])
+                del sample_df
             scale_axis = True
-
         #change e to FAR and gfa to GFA if needed..
         if 'e' in cfua_data.columns:
             cfua_data.rename(columns={'e': 'FAR', 'gfa': 'GFA', 'numfloors': 'Floors'}, inplace=True)
+        
+        return cfua_data, scale_axis
+    
+    if selected_urb_file != "...":
+        cfua_data, scale_axis = get_sample(selected_urb_file=selected_urb_file,filtered_names=filtered_names)
 
+        # ------- classification for feats ----------
+        
         #add shannon index as mixed land use indicator
         cfua_data['residential-all'] = cfua_data['residential-small'] + cfua_data['residential-large']
         land_use_cols = ['residential-all','commercial','public']
+        
         def diversity_index(df_in,use_cols):
             df = df_in.copy()
             df['shannon_index'] = round(df[use_cols].apply(shannon_index, axis=1),3)
@@ -684,45 +712,100 @@ with tab2:
             orig_cols = list(df_in.columns)
             orig_cols.insert(9, orig_cols.pop(orig_cols.index('mixed-use')))
             df_out = df_in[orig_cols]
+            del df_in
+            del df
             return df_out
         cfua_data = diversity_index(cfua_data,use_cols=land_use_cols)
 
+        #residential vol index
+        def residential_vol(df_in,land_use_cols = ['residential-all','commercial','public']):
+            df = df_in.copy()
+            df['all_buildings'] = df['residential-all'] + df['commercial'] + df['public']
+            df['residential_large_share'] = round(df['residential-large'] / df['all_buildings'],3)
+            min_share  =df['residential_large_share'].min()
+            max_share = df['residential_large_share'].max()
+            df_in['high-res-index'] = round(((df['residential_large_share'] - min_share) / (max_share - min_share)) * 100,2)
+            orig_cols = list(df_in.columns)
+            orig_cols.insert(9, orig_cols.pop(orig_cols.index('high-res-index')))
+            df_out = df_in[orig_cols]
+            del df_in
+            del df
+            return df_out
+        cfua_data = residential_vol(cfua_data,land_use_cols=land_use_cols)
+        
+        def amenity_densities(df_in):
+            df = df_in.copy()
+            
+            df['Consumer_urb_index'] = round(df['consumer_urbanism'] / df['GFA'],3)
+            min_con = df['Consumer_urb_index'].min()
+            max_con = df['Consumer_urb_index'].max()
+            df_in['Consumer_urb_index'] = round(((df['Consumer_urb_index'] - min_con) / (max_con - min_con)) * 100,2)
+            
+            df['Time_spending_index'] = round(df['time_spending'] / df['GFA'],3)
+            min_tim = df['Time_spending_index'].min()
+            max_tim = df['Time_spending_index'].max()
+            df_in['Time_spending_index'] = round(((df['Time_spending_index'] - min_tim) / (max_tim - min_tim)) * 100,2)
+            
+            orig_cols = list(df_in.columns)
+            orig_cols.insert(12, orig_cols.pop(orig_cols.index('Consumer_urb_index')))
+            orig_cols.insert(12, orig_cols.pop(orig_cols.index('Time_spending_index')))
+            df_out = df_in[orig_cols]
+            del df_in
+            del df
+            return df_out
+        cfua_data = amenity_densities(cfua_data)
+
         dropcols = ['city','wkt','other','miscellaneous','residential-all']
         cfua_df = cfua_data.drop(columns=dropcols)
-
-        #cols for features
-        density_cols = cfua_df.drop(columns='clusterID').columns.tolist()[:3]
-        land_use_cols = cfua_df.drop(columns='clusterID').columns.tolist()[3:8]
-        amenity_cols = cfua_df.drop(columns='clusterID').columns.tolist()[8:11]
-        cf_cols = cfua_df.drop(columns='clusterID').columns.tolist()[13:]
+        #st.data_editor(cfua_df)
+        #st.stop()
+        
+        # ------- cols for features --------
+        density_cols = cfua_df.drop(columns='clusterID').columns.tolist()[1:4]
+        land_use_cols = cfua_df.drop(columns='clusterID').columns.tolist()[7:9] + ['Consumer_urb_index','Time_spending_index']
+        cf_cols = cfua_df.drop(columns='clusterID').columns.tolist()[17:]
+        classification_sets = ['Carbon footprint','Consumer_urb_index','Time_spending_index']
 
         c1,c2,c3,c4 = st.columns(4)
         yax = c1.selectbox('Density metric (y)',density_cols,index=2)
-        xax = c2.selectbox('Land-use index (x)',land_use_cols,index=4)
-        size = c3.selectbox('Amenity count (size)',amenity_cols,index=0)
-        cf = c4.selectbox('CF-class (color)',cf_cols,index=0)
+        xax = c2.selectbox('Land-use index (x)',land_use_cols,index=1)
+        size = c3.selectbox('Carbon footprint (size)',cf_cols,index=0)
+        classify = c4.selectbox('Classification (color)',classification_sets,index=0)
+        
+        #classify
+        if classify == 'Carbon footprint':
+            classifier = size
+        else:
+            classifier = classify
         
         if yax != xax:
+            
             if selected_urb_file == "All_samples":
-                use_trendline = False  #to true if needed
+                #drop large areas
+                cfua_df = cfua_df[cfua_df['area'] < 4000000] # > 4km2
+                
+            #st.data_editor(cfua_df)
+            if selected_urb_file != "All_samples":
+                custom_bins = None
             else:
-                use_trendline = False
-
+                custom_bins = np.percentile(cfua_df[classifier].dropna(), [0, 25, 50, 75, 90])
+            
             scat_plot = carbon_vs_pois_scatter(cfua_df,
                                 hovername='clusterID',
-                                cf_col=cf,
+                                cf_col=classifier,
                                 x_col=xax,
                                 y_col=yax,
                                 z_col=size,
                                 scale_axis=scale_axis,
-                                trendline=use_trendline,
-                                title="CFUA scatter")
+                                trendline=False,
+                                bins=custom_bins,
+                                title=f"CFUA scatter, Sample N = {len(cfua_df)}")
             
             st.plotly_chart(scat_plot, use_container_width=True, config = {'displayModeBar': False} )
             
             if selected_urb_file != "All_samples":
                 with st.expander('Cluster on map'):
-                    map_plot = plot_sample_areas(cfua_data,cf_col=cf)
+                    map_plot = plot_sample_areas(cfua_data,cf_col=classifier)
                     st.plotly_chart(map_plot, use_container_width=True, config = {'displayModeBar': False} )
                     st.data_editor(cfua_df.drop(columns=cfua_df.columns[-1],  axis=1))
                 
