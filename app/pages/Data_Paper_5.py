@@ -81,28 +81,21 @@ st.markdown("###")
 
 def check_password():
     def password_entered():
-        """Checks whether a password entered by the user is correct."""
         if (
-            st.session_state["username"] in st.secrets["passwords"]
-            and st.session_state["password"]
-            == st.secrets["passwords"][st.session_state["username"]]
+            st.session_state["password"]
+            == st.secrets["passwords"]["cfua"]
         ):
             st.session_state["password_correct"] = True
             del st.session_state["password"]
         else:
             st.session_state["password_correct"] = False
     if "password_correct" not in st.session_state:
-        # First run, show inputs for username + password.
-        st.text_input(label="user name", on_change=password_entered, key="username")
         st.text_input(label="password", type="password", on_change=password_entered, key="password")
         return False
     elif not st.session_state["password_correct"]:
-        # Password not correct, show input + error.
-        st.text_input(label="username", on_change=password_entered, key="username")
         st.text_input(label="password", type="password", on_change=password_entered, key="password")
         return False
     else:
-        # Password correct.
         return True
 
 #data handler
@@ -149,9 +142,6 @@ def spaces_csv_handler(file_name=None, folder_name="ndp", operation=None, data_f
         return list_files_from_bucket(client,bucket_name,folder_name)
     else:
         raise ValueError("Invalid operation or missing data for upload")
-
-
-
 
 
 
@@ -355,7 +345,7 @@ with tab1:
     s1,s2 = st.columns(2)
     radius = s1.slider('Search radius',100,900,500,100)
     min_max = s2.slider('Min/max points',3,9,[3,7],1)
-    harmo = st.toggle('Harmonize')
+    harmo = True #st.toggle('Harmonize')
     
     #clusters
     if my_city != '..':
@@ -370,7 +360,7 @@ with tab1:
             map_plot = plot_sample_clusters(sample,cf_col=my_col)
             st.plotly_chart(map_plot, use_container_width=True, config = {'displayModeBar': False} )
         
-        with st.expander(f'Save sample from {my_city}',expanded=False):
+        with st.expander(f'Save sample for {my_city}',expanded=False):
             
             def add_centroid_id(gdf, id_name='clusterID'):
                 # Assuming 'gdf' is your GeoDataFrame with polygon geometries
@@ -436,16 +426,9 @@ with tab1:
 
 
 
-
-
-
-
-
-
-
-
 with tab2:
     st.markdown('Analyzer')
+    ver = "v2" #st.radio("Sample set version",['v1','v2'],horizontal=True)
 
     csv_list = spaces_csv_handler(operation="list",folder_name="ndp/cfua")
 
@@ -454,7 +437,10 @@ with tab2:
         file_name_with_extension = file_name.split('/')[-1]
         name = file_name_with_extension.split('.')[0]
         names.append(name)
-    pattern = "CFUADATA" #r'_sample_N\d+$'
+    if ver == 'v1':
+        pattern = f"CFUADATA" #r'_sample_N\d+$'
+    else:
+        pattern = f"CFUADATA_v2" #r'_sample_N\d+$'
     filtered_names = [name for name in names if re.search(pattern, name)]
     selectbox_names = filtered_names.copy()
     selectbox_names.insert(0,"...")
@@ -484,7 +470,7 @@ with tab2:
         # Define fixed labels and colors
         labels_colors = {
             'Bottom': 'rgba(144, 238, 144, 0.6)',
-            'Low': 'rgba(254, 220, 120, 0.8)',
+            'Low': 'rgba(64,224,208, 0.8)',
             'High': 'rgba(254, 170, 70, 1)',
             'Top': 'rgba(253, 100, 80, 1)'
         }
@@ -572,7 +558,7 @@ with tab2:
         # Define fixed labels and colors
         labels_colors = {
             'Bottom': 'rgba(35,140,35, 1)',
-            'Low': 'rgba(254, 220, 120, 0.8)',
+            'Low': 'rgba(64,224,208, 0.8)',
             'High': 'rgba(254, 170, 70, 0.8)',
             'Top': 'rgba(255, 87, 51, 1)'
         }
@@ -718,7 +704,7 @@ with tab2:
         
         if yax != xax:
             if selected_urb_file == "All_samples":
-                use_trendline = True
+                use_trendline = False  #to true if needed
             else:
                 use_trendline = False
 
