@@ -232,7 +232,7 @@ def plot_sample_clusters(gdf_in,cf_col="Total footprint"):
 
 # --------------------- THE CONTENT ------------------------
 
-tab1,tab2 = st.tabs(['Clusterizer','Analyzer'])
+tab1,tab2,tab3 = st.tabs(['Clusterizer','Analyzer','Classifier'])
 
 with tab1:
     @st.cache_data()
@@ -427,7 +427,6 @@ with tab1:
 
 
 with tab2:
-    st.markdown('Analyzer')
     ver = "v2" #st.radio("Sample set version",['v1','v2'],horizontal=True)
 
     csv_list = spaces_csv_handler(operation="list",folder_name="ndp/cfua")
@@ -445,7 +444,7 @@ with tab2:
     selectbox_names = filtered_names.copy()
     selectbox_names.insert(0,"...")
     selectbox_names.append("All_samples")
-    selected_urb_file = st.selectbox('Select sample file',selectbox_names)
+    selected_urb_file = st.selectbox('Select sample file to analyze',selectbox_names)
 
     #map plotter 2
     def plot_sample_areas(df,cf_col="Total footprint"):
@@ -694,67 +693,72 @@ with tab2:
         
         return cfua_data, scale_axis
     
-    if selected_urb_file != "...":
-        cfua_data, scale_axis = get_sample(selected_urb_file=selected_urb_file,filtered_names=filtered_names)
-
-        # ------- classification for feats ----------
+    
+    # ------- functions ----------
         
-        #add shannon index as mixed land use indicator
+    def diversity_index(df_in,use_cols):
+        df = df_in.copy()
+        df['shannon_index'] = round(df[use_cols].apply(shannon_index, axis=1),3)
+        min_shannon = df['shannon_index'].min()
+        max_shannon = df['shannon_index'].max()
+        df_in['mixed-use'] = round(((df['shannon_index'] - min_shannon) / (max_shannon - min_shannon)) * 100,2)
+        orig_cols = list(df_in.columns)
+        orig_cols.insert(9, orig_cols.pop(orig_cols.index('mixed-use')))
+        df_out = df_in[orig_cols]
+        del df_in
+        del df
+        return df_out
+
+    def residential_vol(df_in,land_use_cols = ['residential-all','commercial','public']):
+        df = df_in.copy()
+        df['all_buildings'] = df['residential-all'] + df['commercial'] + df['public']
+        df['residential_large_share'] = round(df['residential-large'] / df['all_buildings'],3)
+        min_share  =df['residential_large_share'].min()
+        max_share = df['residential_large_share'].max()
+        df_in['high-res-index'] = round(((df['residential_large_share'] - min_share) / (max_share - min_share)) * 100,2)
+        orig_cols = list(df_in.columns)
+        orig_cols.insert(9, orig_cols.pop(orig_cols.index('high-res-index')))
+        df_out = df_in[orig_cols]
+        del df_in
+        del df
+        return df_out
+    
+    def amenity_densities(df_in):
+        df = df_in.copy()
+        
+        df['Consumer_urb_index'] = round(df['consumer_urbanism'] / df['GFA'],3)
+        min_con = df['Consumer_urb_index'].min()
+        max_con = df['Consumer_urb_index'].max()
+        df_in['Consumer_urb_index'] = round(((df['Consumer_urb_index'] - min_con) / (max_con - min_con)) * 100,2)
+        
+        df['Time_spending_index'] = round(df['time_spending'] / df['GFA'],3)
+        min_tim = df['Time_spending_index'].min()
+        max_tim = df['Time_spending_index'].max()
+        df_in['Time_spending_index'] = round(((df['Time_spending_index'] - min_tim) / (max_tim - min_tim)) * 100,2)
+        
+        orig_cols = list(df_in.columns)
+        orig_cols.insert(12, orig_cols.pop(orig_cols.index('Consumer_urb_index')))
+        orig_cols.insert(12, orig_cols.pop(orig_cols.index('Time_spending_index')))
+        df_out = df_in[orig_cols]
+        del df_in
+        del df
+        return df_out
+    
+    #prepare data func to be used also in tab3..
+    def prepare_data(selected_urb_file):
+        cfua_data, scale_axis = get_sample(selected_urb_file=selected_urb_file,filtered_names=filtered_names)
         cfua_data['residential-all'] = cfua_data['residential-small'] + cfua_data['residential-large']
         land_use_cols = ['residential-all','commercial','public']
-        
-        def diversity_index(df_in,use_cols):
-            df = df_in.copy()
-            df['shannon_index'] = round(df[use_cols].apply(shannon_index, axis=1),3)
-            min_shannon = df['shannon_index'].min()
-            max_shannon = df['shannon_index'].max()
-            df_in['mixed-use'] = round(((df['shannon_index'] - min_shannon) / (max_shannon - min_shannon)) * 100,2)
-            orig_cols = list(df_in.columns)
-            orig_cols.insert(9, orig_cols.pop(orig_cols.index('mixed-use')))
-            df_out = df_in[orig_cols]
-            del df_in
-            del df
-            return df_out
         cfua_data = diversity_index(cfua_data,use_cols=land_use_cols)
-
-        #residential vol index
-        def residential_vol(df_in,land_use_cols = ['residential-all','commercial','public']):
-            df = df_in.copy()
-            df['all_buildings'] = df['residential-all'] + df['commercial'] + df['public']
-            df['residential_large_share'] = round(df['residential-large'] / df['all_buildings'],3)
-            min_share  =df['residential_large_share'].min()
-            max_share = df['residential_large_share'].max()
-            df_in['high-res-index'] = round(((df['residential_large_share'] - min_share) / (max_share - min_share)) * 100,2)
-            orig_cols = list(df_in.columns)
-            orig_cols.insert(9, orig_cols.pop(orig_cols.index('high-res-index')))
-            df_out = df_in[orig_cols]
-            del df_in
-            del df
-            return df_out
         cfua_data = residential_vol(cfua_data,land_use_cols=land_use_cols)
-        
-        def amenity_densities(df_in):
-            df = df_in.copy()
-            
-            df['Consumer_urb_index'] = round(df['consumer_urbanism'] / df['GFA'],3)
-            min_con = df['Consumer_urb_index'].min()
-            max_con = df['Consumer_urb_index'].max()
-            df_in['Consumer_urb_index'] = round(((df['Consumer_urb_index'] - min_con) / (max_con - min_con)) * 100,2)
-            
-            df['Time_spending_index'] = round(df['time_spending'] / df['GFA'],3)
-            min_tim = df['Time_spending_index'].min()
-            max_tim = df['Time_spending_index'].max()
-            df_in['Time_spending_index'] = round(((df['Time_spending_index'] - min_tim) / (max_tim - min_tim)) * 100,2)
-            
-            orig_cols = list(df_in.columns)
-            orig_cols.insert(12, orig_cols.pop(orig_cols.index('Consumer_urb_index')))
-            orig_cols.insert(12, orig_cols.pop(orig_cols.index('Time_spending_index')))
-            df_out = df_in[orig_cols]
-            del df_in
-            del df
-            return df_out
         cfua_data = amenity_densities(cfua_data)
+        return cfua_data, scale_axis
+    
+    cfua_df = None
+    if selected_urb_file != "...":
 
+        cfua_data, scale_axis = prepare_data(selected_urb_file)
+        
         dropcols = ['city','wkt','other','miscellaneous','residential-all']
         cfua_df = cfua_data.drop(columns=dropcols)
         #st.data_editor(cfua_df)
@@ -915,6 +919,192 @@ with tab2:
                 fig, corr_df = single_corr_matrix(cfua_df.drop(columns=['clusterID']),color_scale=colorscale_dicr,sample_name=selected_urb_file)
                 st.plotly_chart(fig, use_container_width=True, config = {'displayModeBar': False} )
                 
+
+#classifier
+with tab3:
+        
+    # ML classifier
+    def classifier(df_in,k=4):
+        feats = ['Floors','FAR','high-res-index','mixed-use','Time_spending_index','Consumer_urb_index']
+        df = df_in[feats].copy()
+        from sklearn.cluster import KMeans
+        from sklearn.tree import DecisionTreeClassifier, plot_tree
+        import matplotlib.pyplot as plt
+        # Applying K-Means clustering
+        kmeans = KMeans(n_clusters=k, random_state=42)
+        df['cluster'] = kmeans.fit_predict(df)
+        # Preparing the data
+        X = df.drop('cluster', axis=1)  # Features
+        y = df['cluster']  # Cluster labels as target
+        # Training a decision tree
+        clf = DecisionTreeClassifier(random_state=42)
+        clf.fit(X, y)
+        # Plotting the decision tree
+        plt.figure(figsize=(20,10))
+        plot_tree(clf, filled=True, feature_names=X.columns, class_names=True)
+        mytree = plt.show()
+        return st.pyplot(mytree)
+    
+    selected_urb_file2 = st.selectbox('Select sample to classify',selectbox_names)
+    if selected_urb_file2 != "...":
+        cfua_data, scalefix_notused = prepare_data(selected_urb_file2)
+        
+        with st.form('Urban types'):
+            st.subheader('Define metrics for urban types')
+            #classifier form
+            c0,c1,c2,c3 = st.columns([2,3,3,3])
+            c0.subheader("'Frank'") #LL
+            LL_far = c1.slider('FAR',0.0,2.0,[0.0,0.2],0.1,key='LL_far')
+            LL_floors = c2.slider('Floors',1,9,[1,2],1,key='LL_floors')
+            LL_urb = c3.slider('Urbanism',0,100,[1,100],10,key='LL_urb')
+            c0.markdown("###")
+            c0.markdown("###")
+            c0.subheader("'Jacobs'") #LH
+            LH_far = c1.slider('FAR',0.0,2.0,[0.3,1.0],0.1,key='LH_far')
+            LH_floors = c2.slider('Floors',1,9,[1,3],1,key='LH_floors')
+            LH_urb = c3.slider('Urbanism',0,100,[0,50],10,key='LH_urb')
+            c0.markdown("###")
+            c0.markdown("###")
+            c0.subheader("'Corbu'") #HL
+            HL_far = c1.slider('FAR',0.0,2.0,[0.8,2.0],0.1,key='HL_far')
+            HL_floors = c2.slider('Floors',1,9,[5,9],1,key='HL_floors')
+            HL_urb = c3.slider('Urbanism',0,100,[0,50],10,key='HL_urb')
+            c0.markdown("###")
+            c0.markdown("###")
+            c0.subheader("'Cerda'") #HH
+            HH_far = c1.slider('FAR',0.0,2.0,[0.5,2.0],0.1,key='HH_far')
+            HH_floors = c2.slider('Floors',1,9,[4,9],1,key='HH_floors')
+            HH_urb = c3.slider('Urbanism',0,100,[10,100],10,key='HH_urb')
+            c0.markdown("###")
+            c0.markdown("###")
+            
+            update = st.form_submit_button('Apply')
+            #st.markdown("---")
+        
+        #manual classifier
+        classification_rules = {
+            # low-low = LL
+            'Frank': [
+                {'F1': 'FAR', 'min': LL_far[0], 'max': LL_far[1],
+                 'F2': 'Floors', 'min2': LL_floors[0], 'max2': LL_floors[1]}
+            ],
+            # low-high = LH
+            'Jacobs': [
+                {'F1': 'FAR', 'min': LH_far[0], 'max': LH_far[1],
+                 'F2': 'Floors', 'min2': LH_floors[0], 'max2': LH_floors[1],
+                 'F3': 'Consumer_urb_index', 'min3': LH_urb[0], 'max3': LH_urb[1]}
+            ],
+            # high-low = HL
+            'Corbu': [
+                {'F1': 'FAR', 'min': HL_far[0], 'max': HL_far[1],
+                 'F2': 'Floors', 'min2': HL_floors[0], 'max2': HL_floors[1],
+                 'F3': 'Consumer_urb_index', 'min3': HL_urb[0], 'max3': HL_urb[1]}
+            ],
+            # high-high = HH
+            'Cerda': [
+                {'F1': 'FAR', 'min': HH_far[0], 'max': HH_far[1],
+                 'F2': 'Floors', 'min2': HH_floors[0], 'max2': HH_floors[1],
+                 'F3': 'Consumer_urb_index', 'min3': HH_urb[0], 'max3': HH_urb[1]}
+            ]
+        }
+        
+        def classify_combined(row, rules):
+            for class_name, conditions in rules.items():
+                for condition in conditions:
+                    if condition['min'] <= row[condition['F1']] < condition['max'] and \
+                    condition['min2'] <= row[condition['F2']] < condition['max2'] and \
+                    ('F3' not in condition or (condition['min3'] <= row[condition['F3']] < condition['max3'])) and \
+                    ('F4' not in condition or (condition['min4'] <= row[condition['F4']] < condition['max4'])):
+                        return class_name
+            return 'Uncat'
+        
+        def classify_sequentially(df, classification_rules):
+            # Initialize a column for classification results if not already present
+            if 'Urban_class' not in df.columns:
+                df['Urban_class'] = None
+
+            for class_name, conditions in classification_rules.items():
+                for condition in conditions:
+                    # Constructing the condition for current class
+                    # Start with rows not yet classified
+                    current_condition = df['Urban_class'].isnull()
+
+                    # Check each specified feature condition
+                    current_condition &= df[condition['F1']].between(condition['min'], condition['max'], inclusive='left')
+                    current_condition &= df[condition['F2']].between(condition['min2'], condition['max2'], inclusive='left')
+                    if 'F3' in condition and 'min3' in condition and 'max3' in condition:
+                        current_condition &= df[condition['F3']].between(condition['min3'], condition['max3'], inclusive='left')
+                    
+                    # Update classification for rows that meet the current condition
+                    df.loc[current_condition, 'Urban_class'] = class_name
+            df.loc[df['Urban_class'].isna(),'Urban_class'] = "Uncat"
+            return df
+
+        if update:
+            #drop large areas
+            df_classified = cfua_data.copy()
+
+            #df_classified['Urban_class'] =df_classified.apply(classify_combined, rules=classification_rules, axis=1)
+            df_classified = classify_sequentially(df_classified,classification_rules)
+            df_classified.loc[(df_classified['Urban_class'] == "Uncat") & 
+                              (df_classified['mixed-use'] > 30) &
+                              (df_classified['Consumer_urb_index'] < 30),
+                               'Urban_class'] = "Mixed"
+            df_classified.loc[(df_classified['area'] > 4000000) &
+                              (df_classified['Consumer_urb_index'] > 50),
+                              'Urban_class'] = "Glaeser"
+            
+            feats = ['FAR','Floors','mixed-use','Consumer_urb_index']
+            
+            urb_type_colors = {
+                'Glaeser':'cornflowerblue',
+                'Cerda':'orange',
+                'Corbu':'Grey',
+                'Jacobs':'brown',
+                'Frank':'burlywood',
+                'Mixed':'violet',
+                'Uncat':'white'
+            }
+            def check_plot(df):
+                df['geometry'] = df.wkt.apply(wkt.loads)
+                gdf = gpd.GeoDataFrame(df,geometry='geometry',crs=4326)
+                lat = gdf.unary_union.centroid.y
+                lon = gdf.unary_union.centroid.x
+                check_fig = px.choropleth_mapbox(gdf,
+                                geojson=gdf.geometry,
+                                locations=gdf.index,
+                                title="Classified areas",
+                                color='Urban_class',
+                                hover_name='clusterID',
+                                hover_data = feats,
+                                color_discrete_map=urb_type_colors,
+                                #category_orders={"cf_class":['Top','High','Low','Bottom']},
+                                #labels={'cf_class': f'{cf_col} level'},
+                                center={"lat": lat, "lon": lon},
+                                mapbox_style=my_style,
+                                zoom=10,
+                                opacity=0.5,
+                                width=900,
+                                height=900
+                                )
+                check_fig.update_layout(margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=700,
+                                    legend=dict(
+                                        yanchor="top",
+                                        y=0.97,
+                                        xanchor="left",
+                                        x=0.02
+                                    )
+                                    )
+                return check_fig
+            
+            st.plotly_chart(check_plot(df_classified), use_container_width=True, config = {'displayModeBar': False} )
+        
+            #distribution
+            fig_bar = px.bar(df_classified, x='GFA', y='Urban_class', color='Urban_class',
+                             orientation='h', title='Volume distribution')
+            fig_bar.update_layout(showlegend=False)
+            st.plotly_chart(fig_bar, use_container_width=True, config = {'displayModeBar': False} )
+        
 
 #footer
 st.markdown('---')
