@@ -28,7 +28,7 @@ st.markdown(header_ing, unsafe_allow_html=True)
 
 spons = '''
 <p style="font-family:sans-serif; color:dimgrey; font-size: 11px;">  
-Funding by<br> 
+Funding (direct & indirect)<br> 
 <a href="https://emilaaltonen.fi" target="_blank">Eemil Aaltosen Säätiö</a><br>
 <a href="https://www.aalto.fi/en/department-of-architecture" target="_blank">Aalto dep. of Architecture</a><br> 
 <a href="https://www.aalto.fi/en/department-of-built-environment/geoinformatics" target="_blank">Aalto Geoinformatics</a><br> 
