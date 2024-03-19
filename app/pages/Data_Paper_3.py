@@ -7,8 +7,6 @@ import numpy as np
 import streamlit as st
 import osmnx as ox
 import momepy
-import shapely.speedups
-shapely.speedups.enable()
 import plotly.express as px
 px.set_mapbox_access_token(st.secrets['MAPBOX_TOKEN'])
 my_style = st.secrets['MAPBOX_STYLE']
@@ -43,7 +41,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 header = '<p style="font-family:sans-serif; color:grey; font-size: 12px;">\
-        NDP Data Paper 3 V0.99 "Gretzky"\
+        NDP Data Paper 3 V1.1 \
         </p>'
 st.markdown(header, unsafe_allow_html=True)
 # plot size setup
@@ -58,7 +56,7 @@ st.title(':point_down:')
 
 @st.cache_data(ttl=900, max_entries=5)
 def get_data(add, tags, radius=500):
-    gdf = ox.geometries_from_address(add, tags, radius)
+    gdf = ox.features_from_address(add, tags, radius)
     fp_proj = ox.project_gdf(gdf).reset_index()
     fp_proj = fp_proj[fp_proj["element_type"] == "way"]
     use_cols = ["osmid", "geometry", "building", 'building:levels','addr:street']
