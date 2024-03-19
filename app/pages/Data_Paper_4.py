@@ -76,7 +76,7 @@ k = st.empty()
 
 #statgrid change
 @st.cache_data()
-def muutos_h3(kunta_list,y1=2015,y2=2020): #h3 resolution 7 for 1x1km census grid
+def muutos_h3(kunta_list,y1=2015,y2=2022): #h3 resolution 7 for 1x1km census grid
     url = 'http://geo.stat.fi/geoserver/vaestoruutu/wfs'
     wfs11 = WebFeatureService(url=url, version='1.1.0')
     path = Path(__file__).parent / 'data/kunta_dict.csv'
@@ -351,14 +351,25 @@ def generate_den_graphs(den0,den1):
 
 with den_holder:
     generate_den_graphs(den0,den1)
-
 st.caption("data: [stat.fi](https://www.stat.fi/org/avoindata/paikkatietoaineistot/tilastoruudukko_1km.html)")
-selite = ''' 
-    Heksagonihila muodostuu h3geo.org -kirjaston heksagoneista, joihin on summattu asukasmäärät 
-    kuhunkin heksagoniin osuvien 1x1km väestöruututietojen keskipisteiden mukaan. Väestögradientti on muodostettu 
-    heksagonikehistä (R1,R2,R3..) jotka ovat noin 2km välein. Katkoviivalla on merkitty n. 5km keskustaetäisyys. 
-    Luokittelu on dynaaminen seudun arvojen ala- ja yläkvarttaalien mukaan:
-    Heksat, joissa muutos on yli kasvun/vähenemän alakvarttaalin on luokiteltu karttumaksi/hiipumaksi ja 
-    heksat, joissa muutos on yli yläkvarttaalien ovat vastaavasti kasvua/taantumaa.
-    '''
-st.caption(selite)
+    
+with st.expander('Selite',expanded=False):
+    selite = ''' 
+        Heksagonihila muodostuu h3geo.org -kirjaston heksagoneista, joihin on summattu asukasmäärät 
+        kuhunkin heksagoniin osuvien 1x1km väestöruututietojen keskipisteiden mukaan (soveltuu vain seudulliseen tarkasteluun). Väestögradientti on muodostettu 
+        heksagonikehistä (R1,R2,R3..) jotka ovat noin 2km välein. Katkoviivalla on merkitty n. 5km keskustaetäisyys. 
+        Luokittelu on dynaaminen seudun arvojen ala- ja yläkvarttaalien mukaan:
+        Heksat, joissa muutos on yli kasvun/vähenemän alakvarttaalin on luokiteltu karttumaksi/hiipumaksi ja 
+        heksat, joissa muutos on yli yläkvarttaalien ovat vastaavasti kasvua/taantumaa.
+        '''
+    st.caption(selite)
+
+#footer
+st.markdown('---')
+footer_title = '''
+**NDP Project**
+[![MIT license](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/teemuja/NDP/blob/main/LICENSE) 
+'''
+st.markdown(footer_title)
+disclamer = 'Data papers are constant work in progress and will be upgraded, changed & fixed while research go on.'
+st.caption('Disclaimer: ' + disclamer)

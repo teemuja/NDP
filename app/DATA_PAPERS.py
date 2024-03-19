@@ -18,7 +18,7 @@ button[title="View fullscreen"]{
 st.title('NDP Data Papers')
 
 header_ing = '''
-<p style="font-family:sans-serif; color:dimgrey; background-color: white; font-size: 18px;">
+<p style="font-family:sans-serif; color:dimgrey; font-size: 14px;">
 NDP is a PhD research project by <a href="https://research.aalto.fi/en/persons/teemu-jama" target="_blank">Teemu Jama</a> in Aalto University Finland.  
 NDP project studies <a href="https://en.wikipedia.org/wiki/Compact_city" target="_blank">Compact City Concept</a>
 through the lens of <a href="https://sdgs.un.org/goals" target="_blank">SDG-goals</a> by applying latest spatial data analytics and machine learning. \
@@ -28,10 +28,11 @@ st.markdown(header_ing, unsafe_allow_html=True)
 
 spons = '''
 <p style="font-family:sans-serif; color:dimgrey; font-size: 11px;">  
-Funders<br> 
+Funding by<br> 
 <a href="https://emilaaltonen.fi" target="_blank">Eemil Aaltosen Säätiö</a><br>
 <a href="https://www.aalto.fi/en/department-of-architecture" target="_blank">Aalto dep. of Architecture</a><br> 
 <a href="https://www.aalto.fi/en/department-of-built-environment/geoinformatics" target="_blank">Aalto Geoinformatics</a><br> 
+<a href="https://qissa.fi/" target="_blank">Qissa Company</a><br> 
 </p>
 '''
 st.sidebar.markdown(spons, unsafe_allow_html=True)
