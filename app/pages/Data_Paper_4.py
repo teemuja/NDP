@@ -1,22 +1,27 @@
-#python we go
+# NDP app always beta a lot
 import pandas as pd
 import geopandas as gpd
 import numpy as np
-from scipy.stats import boxcox
 import streamlit as st
+import h3pandas as h3
+import numpy as np
+from pathlib import Path
+from shapely import wkt
+import json
+import geocoder
 import shapely.speedups
 shapely.speedups.enable()
+from owslib.wfs import WebFeatureService
+from owslib.fes import *
+from owslib.etree import etree
 import plotly.express as px
-import plotly.graph_objs as go
 px.set_mapbox_access_token(st.secrets['MAPBOX_TOKEN'])
 my_style = st.secrets['MAPBOX_STYLE']
-from pathlib import Path
-import h3pandas as h3
-from shapely import wkt
-
+import math
+import statistics
 
 # page setup ---------------------------------------------------------------
-st.set_page_config(page_title="Data Paper #4", layout="wide", initial_sidebar_state='collapsed')
+st.set_page_config(page_title="Data Paper #3", layout="wide", initial_sidebar_state='collapsed')
 padding = 1
 st.markdown(f""" <style>
     .reportview-container .main .block-container{{
@@ -24,8 +29,7 @@ st.markdown(f""" <style>
         padding-right: {padding}rem;
         padding-left: {padding}rem;
         padding-bottom: {padding}rem;
-    }}
-    </style> """, unsafe_allow_html=True)
+    }} </style> """, unsafe_allow_html=True)
 st.markdown("""
     <style>
     div.stButton > button:first-child {
@@ -43,150 +47,220 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 header = '<p style="font-family:sans-serif; color:grey; font-size: 12px;">\
-        NDP data paper #4 V0.91\
+        NDP Data Paper 4 V1.1 \
         </p>'
 st.markdown(header, unsafe_allow_html=True)
 # plot size setup
 #px.defaults.width = 600
 px.defaults.height = 700
 
-# page header
-header_title = '''
-**Naked Density Project**
-'''
-st.subheader(header_title)
-header_text = '''
-<p style="font-family:sans-serif; color:dimgrey; font-size: 10px;">
-Naked Density Project is a PhD research project by <a href="https://research.aalto.fi/en/persons/teemu-jama" target="_blank">Teemu Jama</a> in Aalto University Finland.  
-NDP project studies correlation between urban density and <a href="https://sdgs.un.org/goals" target="_blank">SDG-goals</a> by applying latest spatial data analytics and machine learning. \
-</p>
-'''
-st.markdown(header_text, unsafe_allow_html=True)
 st.markdown("----")
 # content
 st.title("Data Paper #4")
-st.subheader("Change in density in HMA")
-ingress = '''
-<p style="font-family:sans-serif; color:Black; font-size: 14px;">
-This data paper studies the growth of the Helsinki metropolitan area (HMA) in the zones designated by 
-<a href="https://ckan.ymparisto.fi/en/dataset/harva-ja-tihea-taajama-alue" target="_blank">SYKE</a>.  
-Data is prepared in cooperation with PhD(cand) Mathew Page from University of Helsinki.
-</p>
-'''
-st.markdown(ingress, unsafe_allow_html=True)
-st.markdown("###")
 
-# data loader
+st.markdown('---')
+path = Path(__file__).parent / 'data/kunta_dict.csv'
+with path.open() as f1:
+    kuntakoodit = pd.read_csv(f1, index_col=False, header=0).astype(str)
+kuntakoodit['koodi'] = kuntakoodit['koodi'].str.zfill(3)
+kuntalista = kuntakoodit['kunta'].tolist()
+#st.title(':point_down:')
+st.title('Väestötiheyden kehitys')
+st.subheader('Tällä tutkimusappilla voit katsoa, miten seudun väestötiheys on kehittynyt.')
+# kuntavalitsin
+valinnat = st.multiselect('Valitse kunnat (max 7) - kattavuus koko Suomi', kuntalista, default=['Helsinki','Espoo','Vantaa'])
+st.caption('Ensin valittua käytetään väestögradientin keskipisteenä.')
+vuodet = st.slider('Aseta aikajakso',2010, 2022, (2015, 2022),step=1)
+#st.write('<style>div.row-widget.stRadio > div{flex-direction:row;}</style>', unsafe_allow_html=True)
+k = st.empty()
+
+#statgrid change
 @st.cache_data()
-def load_data():
-    path = Path(__file__).parent / 'data/SYKE_grid_h10.csv'
-    with path.open() as f:
-        data = pd.read_csv(f, index_col='h3_10', header=0)#.astype(str)
-    # to gdf
-    data['geometry'] = data['geometry'].apply(wkt.loads)
-    gdf = gpd.GeoDataFrame(data, crs=4326, geometry='geometry')
-    # center tuple
-    lat = gdf.unary_union.centroid.y
-    lon = gdf.unary_union.centroid.x
-    center = [lat,lon]
-    # rename
-    gdf.rename(columns={'pop19':'pop20'}, inplace=True)
-    gdf.rename(columns={'GFA19':'GFA20'}, inplace=True)
-    return gdf, center
+def muutos_h3(kunta_list,y1=2015,y2=2020): #h3 resolution 7 for 1x1km census grid
+    url = 'http://geo.stat.fi/geoserver/vaestoruutu/wfs'
+    wfs11 = WebFeatureService(url=url, version='1.1.0')
+    path = Path(__file__).parent / 'data/kunta_dict.csv'
+    with path.open() as f1:
+        kuntakoodit = pd.read_csv(f1, index_col=False, header=0).astype(str)
+    kuntakoodit['koodi'] = kuntakoodit['koodi'].str.zfill(3)
+    kunta_dict_inv = pd.Series(kuntakoodit.koodi.values, index=kuntakoodit.kunta).to_dict()
+    cols = ['grd_id','kunta','vaesto','ika_0_14','ika_65_','geometry']
+    yrs = [y1,y2]
+    # loop
+    grid = pd.DataFrame()
+    for kunta in kunta_list:
+        koodi = kunta_dict_inv.get(kunta)
+        filter = PropertyIsLike(propertyname='kunta', literal=koodi, wildCard='*')
+        filterxml = etree.tostring(filter.toXML()).decode("utf-8")
+        grid_kunta = pd.DataFrame()
+        for y in yrs:
+            response = wfs11.getfeature(typename=f'vaestoruutu:vaki{y}_1km_kp', filter=filterxml, outputFormat='json')
+            griddata = gpd.read_file(response)[cols]
+            griddata['vuosi'] = y
+            grid_kunta = pd.concat([grid_kunta,griddata], ignore_index=True)
+        grid = pd.concat([grid,grid_kunta], ignore_index=True)
+    # yr pop
+    grid.loc[grid['vuosi'] == y1,f'{y1}_tot'] = grid['vaesto']
+    grid.loc[grid['vuosi'] == y2,f'{y2}_tot'] = grid['vaesto']
+    # yr pop_lap
+    grid.loc[grid['vuosi'] == y1,f'{y1}_lap'] = grid['ika_0_14']
+    grid.loc[grid['vuosi'] == y2,f'{y2}_lap'] = grid['ika_0_14']
+    # yr pop_van
+    grid.loc[grid['vuosi'] == y1,f'{y1}_van'] = grid['ika_65_']
+    grid.loc[grid['vuosi'] == y2,f'{y2}_van'] = grid['ika_65_']
+    # prepare merge sum
+    grid.replace({-1:0}, inplace=True)
+    grid.loc[grid['vuosi'] == y1,'vaesto'] = -abs(grid['vaesto']) # make first yr value negative for merge sums below
+    grid.loc[grid['vuosi'] == y1,'ika_0_14'] = -abs(grid['ika_0_14'])
+    grid.loc[grid['vuosi'] == y1,'ika_65_'] = -abs(grid['ika_65_'])
+    # count change with groupby..
+    sums = grid.drop(columns='geometry').groupby(by='grd_id').sum().reset_index()
+    sums_df = pd.merge(sums,grid[['grd_id','geometry']],on='grd_id')
+    # create gdf
+    sums_gdf = gpd.GeoDataFrame(sums_df,geometry='geometry',crs=3067)
+    h3_out = sums_gdf.to_crs(4326).h3.geo_to_h3_aggregate(7)
+    # count ratios of change
+    h3_out['vaestosuht'] = round((h3_out['vaesto'] / h3_out[f'{y1}_tot'])*100,0)
+    h3_out['ika_0_14suht'] = round((h3_out['ika_0_14'] / h3_out[f'{y1}_lap'])*100,0)
+    h3_out['ika_65_suht'] = round((h3_out['ika_65_'] / h3_out[f'{y1}_van'])*100,0)
 
-mygdf,center = load_data()
+    return h3_out
 
-# reso
-c1,c2,c3 = st.columns(3)
-yrs = {
-    '2020':'Type20',
-    '2010':'Type10',
-    '2000':'Type00',
-    '1990':'Type90'
-}
-#year
-year = c1.selectbox('Zoning year', ['2020','2010','2000','1990',])
-#zone
-zone = c2.selectbox('Zone',['Tiheä taajama','Harva taajama','Kylät ja maaseutu'])
-#reso
-resoh = c3.radio('Resolution',['H9','H8','H7'], horizontal=True) #['~5km²','~1km²','~1ha']
-reso = int(resoh[-1])
+#den gfradient
+def den_grad(_h3_df,center_add,value,reso=7,rings=7):
+    # create center hex
+    loc = geocoder.osm(center_add)
+    center_df = pd.DataFrame({'lat':loc.lat,'lng':loc.lng},index=[0])
+    h3_center = center_df.h3.geo_to_h3(reso)
 
-#legend
-keys = {
-    'Tiheä taajama':1,
-    'Harva taajama':2,
-    'Kylät':3,
-    'Pienkylät':4,
-    'Maaseutuasutus':5
-    }
-# filter
-if zone != 'Kylät ja maaseutu':
-    plot = mygdf.loc[mygdf[yrs[year]] == keys[zone]].h3.geo_to_h3_aggregate(reso)
+    # create grad_df to sum medians from the rings
+    grad_df = pd.DataFrame()
+    grads = []
+    popsums = []
+    # create ring columns around center_df
+    for i in range(1,rings+1):
+        ring = pd.DataFrame()
+        h3_center[f'h3_r{i}'] = h3_center.h3.k_ring(i)['h3_k_ring']
+        ring[f'h3_0{reso}'] = h3_center[f'h3_r{i}'][0]
+        ring[value] = 0 #np.NaN
+        ring.set_index(f'h3_0{reso}', inplace=True)
+        ring[value].update(_h3_df[value])
+        # remove zeros
+        ring = ring.loc[ring[value] != 0]
+        # calc median
+        popmedian = ring[value].median()
+        popsum = ring[value].sum()
+        grads.append(popmedian)
+        popsums.append(popsum)
+    grad_df['pop_median_km2'] = grads
+    grad_df['pop_sum_ring'] = popsums
+    # create ring names
+    grad_df.reset_index(drop=False, inplace=True)
+    grad_df.rename(columns={'index':'ring'}, inplace=True)
+    grad_df['ring'] = 'R'+ grad_df['ring'].astype(str)
+    return grad_df
+
+#selectors
+if len(valinnat) == 0:
+    st.warning('Valitse ensin kunnat.')
+    st.stop()
+elif len(valinnat) > 7:
+    st.warning('Voit valita max 7.')
+    st.stop()
 else:
-    subzones = ['Kylät','Pienkylät','Maaseutuasutus'] #=[3,4,5]
-    plot = mygdf.loc[mygdf[yrs[year]].isin([3,4,5])].h3.geo_to_h3_aggregate(reso)
+    # generate regional data
+    plot = muutos_h3(valinnat, y1=vuodet[0], y2=vuodet[1])
+    
+    # and scale cirlce
+    import geocoder
+    from geopandas import points_from_xy
+    try:
+        loc = geocoder.osm(valinnat[0]) #eka kaupunki listalla
+        ring = gpd.GeoDataFrame(pd.DataFrame(), geometry=points_from_xy(loc.lng, loc.lat))
+        ring['geometry'] = ring.geometry.buffer(5000)
+    except:
+        ring = None
 
-# map
-with st.expander('Map', expanded=False):
-    #feature to plot
-    densityof = st.radio('Density of',['Population','GFA'], horizontal=True)
-    #calc densities
-    plot = plot.h3.cell_area(unit='m^2')
-    yr_list = ['90','00','10','20']
-    for yr in yr_list:
-        plot[f'den_pop{yr}'] = round(plot[f'pop{yr}'] / (plot['h3_cell_area']/10000),-1)
-        plot[f'den_gfa{yr}'] = round(plot[f'GFA{yr}'] / plot['h3_cell_area'],3)
-        plot[f'class_pop{yr}'] = 'less'
-        plot[f'class_gfa{yr}'] = 'less'
-        #popdens
-        plot.loc[plot[f'den_pop{yr}'] > 1, f'class_pop{yr}'] = 'sprawl'
-        plot.loc[plot[f'den_pop{yr}'] > 10, f'class_pop{yr}'] = 'spacious'
-        plot.loc[plot[f'den_pop{yr}'] > 50, f'class_pop{yr}'] = 'compact'
-        plot.loc[plot[f'den_pop{yr}'] > 70, f'class_pop{yr}'] = 'dense'
-        #gfadense
-        plot.loc[plot[f'den_gfa{yr}'] > 0.10, f'class_gfa{yr}'] = 'sprawl'
-        plot.loc[plot[f'den_gfa{yr}'] > 0.15, f'class_gfa{yr}'] = 'spacious'
-        plot.loc[plot[f'den_gfa{yr}'] > 0.30, f'class_gfa{yr}'] = 'compact'
-        plot.loc[plot[f'den_gfa{yr}'] > 0.60, f'class_gfa{yr}'] = 'dense'
+    # render map
+    mapholder = st.empty()
+    k1,k2 = st.columns([1,2])
+    ratio = k1.checkbox('Näytä suhteellinen kasvu')
+    plot_mode = k2.radio('Muutosdata',('vaesto','ika_0_14','ika_65_'),horizontal=True)
 
-    colormap = {
-        "dense": "darkgoldenrod",
-        "compact": "darkolivegreen",
-        "spacious": "lightgreen",
-        "sprawl": "lightblue",
-        "less":"lightcyan"
+    # plot mode
+    if ratio == 1:
+        color_value = f'{plot_mode}suht'
+    else:
+        color_value = plot_mode
+    
+    # discrete colorscales
+    bin_labels = ['taantumaa','hiipumaa','ei muutosta','karttumaa','kasvua','TOP3']
+    color_col = color_value
+    min1 = plot.loc[plot[color_col] < 0][color_col].quantile(0.75)
+    min2 = plot.loc[plot[color_col] < 0][color_col].quantile(0.25)
+    max1 = plot.loc[plot[color_col] > 0][color_col].quantile(0.25)
+    max2 = plot.loc[plot[color_col] > 0][color_col].quantile(0.75)
+    top3 = plot[color_col].sort_values(ascending = False).head(4).min()
+    plot['Muutos'] = pd.cut(x=plot[color_col],bins=[-np.inf,min2,min1,max1,max2,top3,np.inf],labels=bin_labels)
+
+    #colors
+    bin_colors = {
+        'taantumaa':'cornflowerblue',
+        'hiipumaa':'lightblue',
+        'ei muutosta':'ghostwhite',
+        'karttumaa':'burlywood',
+        'kasvua':'brown',
+        'TOP3':'red'
     }
 
-    lat = center[0]
-    lon = center[1]
-    if densityof == 'Population':
-        mycolor = f'class_pop{yr}'
-        myclass = 'pop'
+    # set range    
+    #range_min = plot[color_value].quantile(0.05)
+    #range_max = plot[color_value].quantile(0.95)
+    #mid_point = abs(0 - range_min / (range_max - range_min))
+
+    #if math.isnan(mid_point):
+    #    mid_point = 0.5
+    #    st.warning('Väriskaalahäiriö')
+
+    #colorscale = [[0, 'rgba(100, 149, 237, 0.85)'],
+    #                [mid_point, 'rgba(255, 255, 255, 0.85)'],
+    #                [1, 'rgba(214, 39, 40, 0.85)']]
+
+    #plot_mode
+    if plot_mode == 'vaesto':
+        graph_value = 'tot'
+        value_title = 'kaikki ikäluokat'
+    elif plot_mode == 'ika_0_14':
+        graph_value = 'lap'
+        value_title = 'lapset 0-14v'
     else:
-        mycolor = f'class_gfa{yr}'
-        myclass = 'gfa'
+        graph_value = 'van'
+        value_title = 'väestö yli 65v'
 
-    fig_map = px.choropleth_mapbox(plot,
-                            geojson=plot.geometry,
-                            locations=plot.index,
-                            title=f"Zone '{zone}' based on year {year} in resolution H{reso}.",
-                            color=mycolor,
-                            hover_data=[f'den_pop{yr}',f'den_gfa{yr}'],
-                            color_discrete_map=colormap,
-                            labels={f'class_{myclass}{yr}': f'Density of {densityof}'},
-                            category_orders={f'class_{myclass}{yr}': ['dense','compact','spacious','sprawl','less']},
-                            #range_color=(range_min, range_max),
-                            #color_continuous_scale=px.colors.sequential.Inferno[::-1],
-                            center={"lat": lat, "lon": lon},
-                            mapbox_style=my_style,
-                            zoom=9,
-                            opacity=0.5,
-                            width=1200,
-                            height=700
-                            )
-
-    fig_map.update_layout(margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=700,
+    # plot
+    lat = plot.unary_union.centroid.y
+    lon = plot.unary_union.centroid.x
+    fig = px.choropleth_mapbox(plot,
+                                geojson=plot.geometry,
+                                locations=plot.index,
+                                title=f'Väestötiheyden muutos {vuodet[0]}-{vuodet[1]}, ({value_title})',
+                                color='Muutos',
+                                hover_data=['vaesto','ika_0_14','ika_65_','vaestosuht','ika_0_14suht','ika_65_suht'],
+                                center={"lat": lat, "lon": lon},
+                                mapbox_style=my_style,
+                                color_discrete_map=bin_colors,
+                                category_orders={'Muutos':bin_labels},
+                                #color_continuous_scale=colorscale,
+                                #range_color=(range_min,range_max),
+                                labels={'vaesto':'Muutos','ika_0_14':'Muutos lapset','ika_65_':'Muutos vanh.',
+                                        'vaestosuht':'Muutos%','ika_0_14suht':'Muutos% lapset','ika_65_suht':'Muutos% vanh.'
+                                        },
+                                zoom=9,
+                                opacity=0.5,
+                                width=1200,
+                                height=700
+                                )
+    fig.update_layout(margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=700,
                                 legend=dict(
                                     yanchor="top",
                                     y=0.97,
@@ -194,177 +268,98 @@ with st.expander('Map', expanded=False):
                                     x=0.02
                                 )
                                 )
+    if ring is not None:
+        fig.update_layout(
+                    mapbox={
+                        "layers": [
+                            {
+                                "source": json.loads(ring.to_crs(4326).to_json()),
+                                #"below": "traces",
+                                "type": "line",
+                                "color": "black",
+                                "line": {"width": 0.5,"dash":[5,5]},
+                            }
+                        ]
+                    }
+                )
+    mapholder.plotly_chart(fig, use_container_width=True)
 
-    st.plotly_chart(fig_map, use_container_width=True)
+st.markdown('---')
 
-    #st.dataframe(plot.drop(columns='geometry'))
+# metrics
+st.subheader('TOP3-kohteiden osuus kasvusta')
+def topN_share(df,col,n=4):
+    net_g = df[col].sum()
+    #if net_g > 0:
+    #    g_share = round((df[col].sort_values(ascending = False).head(n).sum() / net_g)*100,1)
+    #else:
+    g_share = round((df[df[col] > 0][col].sort_values(ascending = False).head(n).sum()) / (df[df[col] > 0][col].sum())*100,1)
+    return round(net_g,-1),g_share
 
-# graphs
-st.subheader(f"Population shares in density classes. ")
-hex_area = round(plot['h3_cell_area'].mean()/10000,1)
-if hex_area < 100:
-    st.markdown(f'Zone "{zone}" in resolution H{reso} (hexagon area: {hex_area} ha)')
-else:
-    st.markdown(f'Zone "{zone}" in resolution H{reso} (hexagon area: {round(hex_area/100,1)} km²)')
+net,net_s = topN_share(plot,'vaesto')
+lap,lap_n = topN_share(plot,'ika_0_14')
+van,van_n = topN_share(plot,'ika_65_')
 
-#growth plot
+m1, m2, m3 = st.columns(3)
+m1.metric(label="Väestökasvu", value=f"{net:.0f}", delta=f"TOP3 osuus {net_s}%")
+m2.metric(label="Lapsikasvu", value=f"{lap:.0f}", delta=f"TOP3 osuus {lap_n}%")
+m3.metric(label="Seniorikasvu", value=f"{van:.0f}", delta=f"TOP3 osuus {van_n}%")
+st.caption('Kasvu on ko. ryhmän nettokasvu, mutta TOP3-alueiden osuus on laskettu vain kasvualueista, ei nettokasvusta.')
+st.markdown('---')
+# graph placeholder
+st.subheader('Väestögradientti')
+den_holder = st.empty()
+
+# and density gradients + rings
+den0 = den_grad(_h3_df=plot,center_add=valinnat[0],value=f'{vuodet[0]}_{graph_value}',reso=7,rings=16)
+den1 = den_grad(_h3_df=plot,center_add=valinnat[0],value=f'{vuodet[1]}_{graph_value}',reso=7,rings=16)
+
+# graph plotter
 import plotly.graph_objects as go
-# Add traces https://plotly.com/python/multiple-axes/#multiple-axes
+def generate_den_graphs(den0,den1):
+    # 
+    def plot_muutos(df1,df2):
+        fig = go.Figure(layout=go.Layout(title=go.layout.Title(text=f'Väestötiheys keskustaetäisyyden mukaan (mediaani, {value_title})')))
+        fig.add_trace(go.Scatter(x=df1['ring'],y=df1['pop_median_km2'],name=f'{vuodet[0]}',
+                                fill='tozeroy',fillcolor='rgba(222, 184, 135, 0.5)',
+                                mode='lines', line=dict(width=0.5, color='rgb(0, 0, 0)')))
+        fig.add_trace(go.Scatter(x=df2['ring'],y=df2['pop_median_km2'],name=f'{vuodet[1]}',
+                                fill='tonexty',fillcolor='rgba(205, 127, 50, 0.5)', mode='none'))
+        fig.update_xaxes(range=[1,15])
+        fig.update_layout(margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=500,
+                                legend=dict(
+                                    yanchor="top",
+                                    y=0.97,
+                                    xanchor="right",
+                                    x=0.99
+                                )
+                                )
+        fig.update_layout(shapes=[
+                            dict(
+                                type= 'line',
+                                yref= 'paper', y0= 0, y1= 1,
+                                xref= 'x', x0= 3, x1= 3,
+                                line=dict(
+                                            color="Black",
+                                            width=0.5,
+                                            dash="dash",
+                                        )
+                                )
+                        ])
+        return fig
+    fig = plot_muutos(den0,den1)
+    return st.plotly_chart(fig, use_container_width=True)
 
-# func to generate pop shares by quantiles for each year
-def qshare(plot):
-    q_list = [90,75,50,25,10]
-    q_dfs = []
-    for q in q_list:
-        g90 = round(plot.loc[plot['pop90'] > plot['pop90'].quantile(q/100)]['pop90'].sum(),0)
-        g00 = round(plot.loc[plot['pop00'] > plot['pop00'].quantile(q/100)]['pop00'].sum(),0)
-        g10 = round(plot.loc[plot['pop10'] > plot['pop10'].quantile(q/100)]['pop10'].sum(),0)
-        g20 = round(plot.loc[plot['pop20'] > plot['pop20'].quantile(q/100)]['pop20'].sum(),0)
-        d = {
-            #'year': ['1990','2000','2010','2020'],
-            f'share_{q}': [round(g90/plot['pop90'].sum(),2)*100,
-                            round(g00/plot['pop00'].sum(),2)*100,
-                            round(g10/plot['pop10'].sum(),2)*100,
-                            round(g20/plot['pop20'].sum(),2)*100]
-        }
-        q_df = pd.DataFrame(data=d, index=['1990','2000','2010','2020'])
-        q_dfs.append(q_df)
+with den_holder:
+    generate_den_graphs(den0,den1)
 
-    #dfs = [df.set_index('year') for df in q_dfs]
-    df_out = pd.concat(q_dfs, axis=1)
-    return df_out
-
-q_shares = qshare(plot=plot)
-
-def share_plot(df):
-    linecolors = px.colors.qualitative.Plotly
-    fig = go.Figure()
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_90'],name='90%', mode = 'lines', line=dict(color=linecolors[0])))
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_75'],name='75%', mode = 'lines', line=dict(color=linecolors[1])))
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_50'],name='50%', mode = 'lines', line=dict(color=linecolors[2])))
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_25'],name='25%', mode = 'lines', line=dict(color=linecolors[3])))
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_10'],name='10%', mode = 'lines', line=dict(color=linecolors[4])))
-    fig.update_layout(title_text=f"Population share in pop. density quantiles (H{reso}).")
-    fig.update_xaxes(title='Year')
-    fig.update_yaxes(title='% of total population above quantile')
-    return fig
-
-# pop class shares
-def density_class_share(plot,feat='pop'):
-    den_list = ["dense","compact","spacious","sprawl","less"]
-    list_of_df_shares = []
-    for d in den_list:
-        pop_shares_in_class_d = []
-        for yr in ['90','00','10','20']:
-            popsum = plot.loc[plot[f'class_{feat}{yr}'] == d][f'pop{yr}'].sum()
-            popshare_yr = round(popsum/plot[f'pop{yr}'].sum(),2)*100
-            pop_shares_in_class_d.append(popshare_yr)
-        # pop_shares_in_class_d -> df
-        d = {f'share_{d}': pop_shares_in_class_d}
-        df_shares_of_d = pd.DataFrame(data=d, index=['1990','2000','2010','2020'])
-        list_of_df_shares.append(df_shares_of_d)
-
-    df_out = pd.concat(list_of_df_shares, axis=1)
-    return df_out
-
-pop_shares = density_class_share(plot,feat='pop')
-gfa_shares = density_class_share(plot,feat='gfa')
-
-def pop_share_plot(df):
-    linecolors = px.colors.qualitative.Plotly
-    fig = go.Figure()
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_dense'],name='dense', mode = 'lines', line=dict(color=linecolors[0])))
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_compact'],name='compact', mode = 'lines', line=dict(color=linecolors[1])))
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_spacious'],name='spacious', mode = 'lines', line=dict(color=linecolors[2])))
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_sprawl'],name='sprawl', mode = 'lines', line=dict(color=linecolors[3])))
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_less'],name='less', mode = 'lines', line=dict(color=linecolors[4])))
-    fig.update_layout(title_text=f"Population share by POP density classes (resolution H{reso}).")
-    fig.update_xaxes(title='Year')
-    fig.update_yaxes(title='% of total population in class')
-    return fig
-
-def gfa_share_plot(df):
-    linecolors = px.colors.qualitative.Plotly
-    fig = go.Figure()
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_dense'],name='dense', mode = 'lines', line=dict(color=linecolors[0])))
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_compact'],name='compact', mode = 'lines', line=dict(color=linecolors[1])))
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_spacious'],name='spacious', mode = 'lines', line=dict(color=linecolors[2])))
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_sprawl'],name='sprawl', mode = 'lines', line=dict(color=linecolors[3])))
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_less'],name='less', mode = 'lines', line=dict(color=linecolors[4])))
-    fig.update_layout(title_text=f"Population share by GFA density classes (resolution H{reso}).")
-    fig.update_xaxes(title='Year')
-    fig.update_yaxes(title='% of total population in class')
-    return fig
-
-#plots in tabs
-tab1,tab2,tab3 =  st.tabs(['In POP density classes','In GFA density classes','PDF download'])
-
-with tab1:
-    fig_pop_share = pop_share_plot(pop_shares)
-    st.plotly_chart(fig_pop_share, use_container_width=True)
-with tab2:
-    fig_gfa_share = gfa_share_plot(gfa_shares)
-    st.plotly_chart(fig_gfa_share, use_container_width=True)
-with tab3:
-    import io
-    @st.cache_data()
-    def gen_pdf(fig):
-        buffer_fig = io.BytesIO()
-        fig.write_image(file=buffer_fig, format="pdf")
-        return buffer_fig
-    
-    pdf_out = None
-    d1,d2 = st.columns([1,2])
-    with d1.form("my_form",clear_on_submit=True):
-        my_sel = st.selectbox('',['Select the graph..','POP density classes','GFA density classes'])
-        if my_sel == 'POP density classes':
-            my_fig = fig_pop_share
-        elif my_sel == 'GFA density classes':
-            my_fig = fig_gfa_share
-        else:
-            my_fig = None
-
-        submitted = st.form_submit_button("Generate PDF")
-
-        if submitted:
-            if my_fig is not None:
-                pdf_out = gen_pdf(my_fig)
-            else:
-                st.warning('Select figure')
-                st.stop()
-
-    # download button must be outside the form
-    if pdf_out is not None:
-        d2.markdown('###')
-        d2.markdown('###')
-        d2.download_button(
-            label="Download pdf",
-            data=pdf_out,
-            file_name="figure_map.pdf",
-            mime="application/pdf",
-            )
-
-
-st.markdown('---')
-selite = """
-<b>Density classification:</b><br>
-<i>
-Dense: e > 0.6 | pop/ha > 70 <br>
-Compact: 0.6 - 0.3 | 70 - 50 <br>
-Spacious: 0.3 - 0.15 | 50 - 10 <br>
-Sprawl: 0.15 - 0.10 | 10 - 2 <br>
-Less: e < 0.10 | pop/ha < 2 <br>
-</i>
-<br>
-"""
-st.markdown(selite, unsafe_allow_html=True)
-
-#footer
-st.markdown('---')
-footer_title = '''
-**Naked Density Project**
-[![MIT license](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/teemuja/NDP/blob/main/LICENSE) 
-'''
-st.markdown(footer_title)
-disclamer = 'Data papers are constant work in progress and will be upgraded, changed & fixed for errors while research go on.'
-st.caption('Disclaimer: ' + disclamer)
+st.caption("data: [stat.fi](https://www.stat.fi/org/avoindata/paikkatietoaineistot/tilastoruudukko_1km.html)")
+selite = ''' 
+    Heksagonihila muodostuu h3geo.org -kirjaston heksagoneista, joihin on summattu asukasmäärät 
+    kuhunkin heksagoniin osuvien 1x1km väestöruututietojen keskipisteiden mukaan. Väestögradientti on muodostettu 
+    heksagonikehistä (R1,R2,R3..) jotka ovat noin 2km välein. Katkoviivalla on merkitty n. 5km keskustaetäisyys. 
+    Luokittelu on dynaaminen seudun arvojen ala- ja yläkvarttaalien mukaan:
+    Heksat, joissa muutos on yli kasvun/vähenemän alakvarttaalin on luokiteltu karttumaksi/hiipumaksi ja 
+    heksat, joissa muutos on yli yläkvarttaalien ovat vastaavasti kasvua/taantumaa.
+    '''
+st.caption(selite)

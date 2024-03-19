@@ -49,18 +49,6 @@ st.markdown(header, unsafe_allow_html=True)
 #px.defaults.width = 600
 px.defaults.height = 700
 
-# page header
-header_title = '''
-**Naked Density Project**
-'''
-st.subheader(header_title)
-header_text = '''
-<p style="font-family:sans-serif; color:dimgrey; font-size: 10px;">
-Naked Density Project is a PhD research project by <a href="https://research.aalto.fi/en/persons/teemu-jama" target="_blank">Teemu Jama</a> in Aalto University Finland.  
-NDP project studies correlation between urban density and <a href="https://sdgs.un.org/goals" target="_blank">SDG-goals</a> by applying latest spatial data analytics and machine learning. \
-</p>
-'''
-st.markdown(header_text, unsafe_allow_html=True)
 st.markdown("----")
 # content
 st.title("Data Paper #1")
@@ -201,9 +189,9 @@ if mydecade != 'Decade..':
 #footer
 st.markdown('---')
 footer_title = '''
-**Naked Density Project**
+**NDP Project**
 [![MIT license](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/teemuja/NDP/blob/main/LICENSE) 
 '''
 st.markdown(footer_title)
-disclamer = 'Data papers are constant work in progress and will be upgraded, changed & fixed for errors while research go on.'
+disclamer = 'Data papers are constant work in progress and will be upgraded, changed & fixed while research go on.'
 st.caption('Disclaimer: ' + disclamer)

@@ -1,8 +1,12 @@
-FROM python:3.9
+#https://github.com/OSGeo/gdal/pkgs/container/gdal
+FROM ghcr.io/osgeo/gdal:ubuntu-small-3.8.4
 
-RUN apt-get update
-RUN apt-get install -y libgdal-dev
-RUN pip install GDAL==3.2.2.1
+# Install python3-pip and git
+RUN apt-get update && \
+    apt-get install -y python3-pip software-properties-common && \
+    add-apt-repository ppa:git-core/ppa && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 WORKDIR app/
 
