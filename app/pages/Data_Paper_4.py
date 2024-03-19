@@ -9,13 +9,13 @@ from pathlib import Path
 from shapely import wkt
 import json
 import geocoder
-import shapely.speedups
-shapely.speedups.enable()
+from geopandas import points_from_xy
 from owslib.wfs import WebFeatureService
 from owslib.fes import *
 from owslib.etree import etree
 import plotly.express as px
 px.set_mapbox_access_token(st.secrets['MAPBOX_TOKEN'])
+mbtoken = st.secrets['MAPBOX_TOKEN']
 my_style = st.secrets['MAPBOX_STYLE']
 import math
 import statistics
@@ -126,39 +126,6 @@ def muutos_h3(kunta_list,y1=2015,y2=2020): #h3 resolution 7 for 1x1km census gri
 
     return h3_out
 
-#den gfradient
-def den_grad(_h3_df,center_add,value,reso=7,rings=7):
-    # create center hex
-    loc = geocoder.osm(center_add)
-    center_df = pd.DataFrame({'lat':loc.lat,'lng':loc.lng},index=[0])
-    h3_center = center_df.h3.geo_to_h3(reso)
-
-    # create grad_df to sum medians from the rings
-    grad_df = pd.DataFrame()
-    grads = []
-    popsums = []
-    # create ring columns around center_df
-    for i in range(1,rings+1):
-        ring = pd.DataFrame()
-        h3_center[f'h3_r{i}'] = h3_center.h3.k_ring(i)['h3_k_ring']
-        ring[f'h3_0{reso}'] = h3_center[f'h3_r{i}'][0]
-        ring[value] = 0 #np.NaN
-        ring.set_index(f'h3_0{reso}', inplace=True)
-        ring[value].update(_h3_df[value])
-        # remove zeros
-        ring = ring.loc[ring[value] != 0]
-        # calc median
-        popmedian = ring[value].median()
-        popsum = ring[value].sum()
-        grads.append(popmedian)
-        popsums.append(popsum)
-    grad_df['pop_median_km2'] = grads
-    grad_df['pop_sum_ring'] = popsums
-    # create ring names
-    grad_df.reset_index(drop=False, inplace=True)
-    grad_df.rename(columns={'index':'ring'}, inplace=True)
-    grad_df['ring'] = 'R'+ grad_df['ring'].astype(str)
-    return grad_df
 
 #selectors
 if len(valinnat) == 0:
@@ -172,8 +139,6 @@ else:
     plot = muutos_h3(valinnat, y1=vuodet[0], y2=vuodet[1])
     
     # and scale cirlce
-    import geocoder
-    from geopandas import points_from_xy
     try:
         loc = geocoder.osm(valinnat[0]) #eka kaupunki listalla
         ring = gpd.GeoDataFrame(pd.DataFrame(), geometry=points_from_xy(loc.lng, loc.lat))
@@ -309,6 +274,40 @@ st.markdown('---')
 # graph placeholder
 st.subheader('Väestögradientti')
 den_holder = st.empty()
+
+def den_grad(_h3_df,center_add,value,reso=7,rings=7):
+    # create center hex
+    loc = geocoder.mapbox(center_add, key=mbtoken)
+    center_df = pd.DataFrame({'lat':loc.lat,'lng':loc.lng},index=[0])
+    h3_center = center_df.h3.geo_to_h3(reso)
+
+    # create grad_df to sum medians from the rings
+    grad_df = pd.DataFrame()
+    grads = []
+    popsums = []
+    # create ring columns around center_df
+    for i in range(1,rings+1):
+        ring = pd.DataFrame()
+        h3_center[f'h3_r{i}'] = h3_center.h3.k_ring(i)['h3_k_ring']
+        ring[f'h3_0{reso}'] = h3_center[f'h3_r{i}'][0]
+        ring[value] = 0 #np.NaN
+        ring.set_index(f'h3_0{reso}', inplace=True)
+        ring[value].update(_h3_df[value])
+        # remove zeros
+        ring = ring.loc[ring[value] != 0]
+        # calc median
+        popmedian = ring[value].median()
+        popsum = ring[value].sum()
+        grads.append(popmedian)
+        popsums.append(popsum)
+    grad_df['pop_median_km2'] = grads
+    grad_df['pop_sum_ring'] = popsums
+    # create ring names
+    grad_df.reset_index(drop=False, inplace=True)
+    grad_df.rename(columns={'index':'ring'}, inplace=True)
+    grad_df['ring'] = 'R'+ grad_df['ring'].astype(str)
+    return grad_df
+
 
 # and density gradients + rings
 den0 = den_grad(_h3_df=plot,center_add=valinnat[0],value=f'{vuodet[0]}_{graph_value}',reso=7,rings=16)
