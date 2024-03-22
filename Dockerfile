@@ -5,6 +5,7 @@ FROM ghcr.io/osgeo/gdal:ubuntu-small-3.8.4
 RUN apt-get update && \
     apt-get install -y python3-pip software-properties-common && \
     add-apt-repository ppa:git-core/ppa && \
+    apt-get -y install git && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
