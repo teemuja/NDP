@@ -76,7 +76,7 @@ k = st.empty()
 
 #statgrid change
 @st.cache_data()
-def muutos_h3(kunta_list,y1=2015,y2=2022): #h3 resolution 7 for 1x1km census grid
+def muutos_h3(kunta_list,y1=2015,y2=2022): #h3 resolution 7
     url = 'http://geo.stat.fi/geoserver/vaestoruutu/wfs'
     wfs11 = WebFeatureService(url=url, version='1.1.0')
     path = Path(__file__).parent / 'data/kunta_dict.csv'
@@ -159,14 +159,15 @@ else:
         color_value = plot_mode
     
     # discrete colorscales
-    bin_labels = ['taantumaa','hiipumaa','ei muutosta','karttumaa','kasvua','TOP3']
+    bin_labels = ['taantumaa','hiipumaa','ei muutosta','karttumaa','kasvua','top']
     color_col = color_value
     min1 = plot.loc[plot[color_col] < 0][color_col].quantile(0.75)
     min2 = plot.loc[plot[color_col] < 0][color_col].quantile(0.25)
     max1 = plot.loc[plot[color_col] > 0][color_col].quantile(0.25)
     max2 = plot.loc[plot[color_col] > 0][color_col].quantile(0.75)
-    top3 = plot[color_col].sort_values(ascending = False).head(4).min()
-    plot['Muutos'] = pd.cut(x=plot[color_col],bins=[-np.inf,min2,min1,max1,max2,top3,np.inf],labels=bin_labels)
+    top = plot.loc[plot[color_col] > 0][color_col].quantile(0.90)
+    win = plot[color_col].sort_values(ascending = False).head(2).min()
+    plot['Muutos'] = pd.cut(x=plot[color_col],bins=[-np.inf,min2,min1,max1,max2,top,np.inf],labels=bin_labels)
 
     #colors
     bin_colors = {
@@ -175,7 +176,7 @@ else:
         'ei muutosta':'ghostwhite',
         'karttumaa':'burlywood',
         'kasvua':'brown',
-        'TOP3':'red'
+        'top':'red',
     }
 
     # set range    
@@ -252,24 +253,23 @@ else:
 st.markdown('---')
 
 # metrics
-st.subheader('TOP3-kohteiden osuus kasvusta')
-def topN_share(df,col,n=4):
-    net_g = df[col].sum()
-    #if net_g > 0:
-    #    g_share = round((df[col].sort_values(ascending = False).head(n).sum() / net_g)*100,1)
-    #else:
-    g_share = round((df[df[col] > 0][col].sort_values(ascending = False).head(n).sum()) / (df[df[col] > 0][col].sum())*100,1)
-    return round(net_g,-1),g_share
+st.subheader('TOP-kohteiden osuus kasvusta')
 
-net,net_s = topN_share(plot,'vaesto')
-lap,lap_n = topN_share(plot,'ika_0_14')
-van,van_n = topN_share(plot,'ika_65_')
+def topN_share(df,col,n=4,q=0.9):
+    net_growth = df[col].sum()
+    g_qshare = round(df.loc[df[col] > df[col].quantile(q), col].sum() / df[df[col] > 0][col].sum() * 100, 1)
+    g_share = round((df[df[col] > 0][col].sort_values(ascending = False).head(n).sum()) / (df[df[col] > 0][col].sum())*100,1)
+    return round(net_growth,-1),g_share,g_qshare
+
+net,net_s,net_q = topN_share(plot,'vaesto')
+lap,lap_s,lap_q = topN_share(plot,'ika_0_14')
+van,van_s,van_q = topN_share(plot,'ika_65_')
 
 m1, m2, m3 = st.columns(3)
-m1.metric(label="Väestökasvu", value=f"{net:.0f}", delta=f"TOP3 osuus {net_s}%")
-m2.metric(label="Lapsikasvu", value=f"{lap:.0f}", delta=f"TOP3 osuus {lap_n}%")
-m3.metric(label="Seniorikasvu", value=f"{van:.0f}", delta=f"TOP3 osuus {van_n}%")
-st.caption('Kasvu on ko. ryhmän nettokasvu, mutta TOP3-alueiden osuus on laskettu vain kasvualueista, ei nettokasvusta.')
+m1.metric(label="Väestökasvu", value=f"{net:.0f}", delta=f"TOP osuus {net_q}%")
+m2.metric(label="Lapsikasvu", value=f"{lap:.0f}", delta=f"TOP osuus {lap_q}%")
+m3.metric(label="Seniorikasvu", value=f"{van:.0f}", delta=f"TOP osuus {van_q}%")
+st.caption('Kasvu on ko. ryhmän nettokasvu, mutta TOP-kohteiden(=kasvu yli 90. prosentiilin) osuus on laskettu vain kasvualueista, ei nettokasvusta.')
 st.markdown('---')
 # graph placeholder
 st.subheader('Väestögradientti')
@@ -295,12 +295,12 @@ def den_grad(_h3_df,center_add,value,reso=7,rings=7):
         ring[value].update(_h3_df[value])
         # remove zeros
         ring = ring.loc[ring[value] != 0]
-        # calc median
-        popmedian = ring[value].median()
+        # calc median devided by 5 km
+        popmedian = ring[value].median() / 5
         popsum = ring[value].sum()
         grads.append(popmedian)
         popsums.append(popsum)
-    grad_df['pop_median_km2'] = grads
+    grad_df['pop_median_5km2'] = grads
     grad_df['pop_sum_ring'] = popsums
     # create ring names
     grad_df.reset_index(drop=False, inplace=True)
@@ -318,11 +318,11 @@ import plotly.graph_objects as go
 def generate_den_graphs(den0,den1):
     # 
     def plot_muutos(df1,df2):
-        fig = go.Figure(layout=go.Layout(title=go.layout.Title(text=f'Väestötiheys keskustaetäisyyden mukaan (mediaani, {value_title})')))
-        fig.add_trace(go.Scatter(x=df1['ring'],y=df1['pop_median_km2'],name=f'{vuodet[0]}',
+        fig = go.Figure(layout=go.Layout(title=go.layout.Title(text=f'Väestötiheys ~km² keskustaetäisyyden mukaan (mediaani, {value_title})')))
+        fig.add_trace(go.Scatter(x=df1['ring'],y=df1['pop_median_5km2'],name=f'{vuodet[0]}',
                                 fill='tozeroy',fillcolor='rgba(222, 184, 135, 0.5)',
                                 mode='lines', line=dict(width=0.5, color='rgb(0, 0, 0)')))
-        fig.add_trace(go.Scatter(x=df2['ring'],y=df2['pop_median_km2'],name=f'{vuodet[1]}',
+        fig.add_trace(go.Scatter(x=df2['ring'],y=df2['pop_median_5km2'],name=f'{vuodet[1]}',
                                 fill='tonexty',fillcolor='rgba(205, 127, 50, 0.5)', mode='none'))
         fig.update_xaxes(range=[1,15])
         fig.update_layout(margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=500,
