@@ -1,5 +1,6 @@
 h3pandas
 streamlit
+st-gsheets-connection
 plotly
 statsmodels
 kaleido #0.2.1

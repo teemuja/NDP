@@ -10,12 +10,14 @@ import math
 import geocoder
 from sklearn.cluster import DBSCAN
 import boto3
-import re
+import requests
+import io
 import plotly.express as px
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 import pingouin as pg
 from sklearn.preprocessing import MinMaxScaler
+from streamlit_gsheets import GSheetsConnection
 
 
 px.set_mapbox_access_token(st.secrets['MAPBOX_TOKEN'])
@@ -24,6 +26,9 @@ my_style = st.secrets['MAPBOX_STYLE']
 key = st.secrets['bucket']['key']
 secret = st.secrets['bucket']['secret']
 url = st.secrets['bucket']['url']
+cfua_allas = st.secrets['allas']['url']
+allas_key = st.secrets['allas']['access_key_id']
+allas_secret = st.secrets['allas']['secret_access_key']
 
 
 # page setup ---------------------------------------------------------------
@@ -54,7 +59,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 header = '<p style="font-family:sans-serif; color:grey; font-size: 12px;">\
-        NDP data paper #5 V1.2\
+        NDP data paper #5 V1.3\
         </p>'
 st.markdown(header, unsafe_allow_html=True)
 # plot size setup
@@ -222,7 +227,7 @@ def plot_sample_clusters(gdf_in,cf_col="Total footprint"):
 
 # --------------------- THE CONTENT ------------------------
 
-tab1,tab2,tab3,tab4 = st.tabs(['Clusterizer','Analyzer','Classifier V1','Classifier V2'])
+tab1,tab2,tab3,tab4,tab5 = st.tabs(['Clusterizer','Urban data','Sample analyzer','Regressor','Land-use explorer'])
 
 with tab1:
     @st.cache_data()
@@ -414,24 +419,36 @@ with tab1:
 
 
 
-
-
 with tab2:
-    ver = "v2" #st.radio("Sample set version",['v1','v2'],horizontal=True)
+    st.markdown('Open notebook in [https://www.puhti.csc.fi/](https://www.puhti.csc.fi/) to generate urban data..')
 
-    csv_list = spaces_csv_handler(operation="list",folder_name="ndp/cfua")
 
+with tab3:
+    #csv_list = spaces_csv_handler(operation="list",folder_name="ndp/cfua")
+    
+    #allas con
+    session2 = boto3.session.Session()
+    client2 = session2.client('s3',
+                            endpoint_url='https://a3s.fi',
+                            aws_access_key_id=allas_key, 
+                            aws_secret_access_key=allas_secret
+                            )
+    objects = client2.list_objects_v2(Bucket='CFUA', Prefix='CFUA')
+    csv_files = []
+    # Iterate over each object in the specified folder
+    for obj in objects.get('Contents', []):
+        file_name = obj['Key']
+        if file_name.endswith('.csv'):
+            csv_files.append(file_name)
+    #get names..
     names = []
-    for file_name in csv_list:
+    for file_name in csv_files:
         file_name_with_extension = file_name.split('/')[-1]
         name = file_name_with_extension.split('.')[0]
         names.append(name)
-    if ver == 'v1':
-        pattern = f"CFUADATA" #r'_sample_N\d+$'
-    else:
-        pattern = f"CFUADATA_v2" #r'_sample_N\d+$'
-    filtered_names = [name for name in names if re.search(pattern, name)]
-    selectbox_names = filtered_names.copy()
+        
+    #filtered_names = [name for name in names if re.search("Pmin", name)]
+    selectbox_names = names.copy()
     selectbox_names.insert(0,"...")
     selectbox_names.append("All_samples")
     selected_urb_file = st.selectbox('Select sample file to analyze',selectbox_names)
@@ -538,18 +555,22 @@ with tab2:
         }
         
         if bins is None:
-            # Generate bin edges ensuring they are unique and cover the range of values
-            bin_edges = np.percentile(case_data[cf_col], np.linspace(0, 100, num_bins + 1))
-            # Adjust the number of labels based on the number of bin edges
-            num_labels = len(bin_edges) - 1
-            labels = list(labels_colors.keys())[:num_labels]
-            # Assign quartile class
-            case_data['cf_class'] = pd.cut(case_data[cf_col], bins=bin_edges, labels=labels, include_lowest=True)
+            # Calculate bins dynamically if not provided
+            sorted_unique_values = np.unique(case_data[cf_col].dropna())
+            num_bins = min(len(sorted_unique_values), 4)
+            bin_edges = np.percentile(sorted_unique_values, np.linspace(0, 100, num_bins + 1))
         else:
-            bin_edges = bins
-            num_labels = len(bin_edges) - 1
-            labels = list(labels_colors.keys())[:num_labels]
-            case_data['cf_class'] = pd.cut(case_data[cf_col], bins=bin_edges, labels=labels, include_lowest=True)
+            # Use custom bins and ensure they are unique after calculation
+            bin_edges = np.unique(np.percentile(case_data[cf_col].dropna(), bins))
+
+        # Making sure bin edges are unique and handling edge cases
+        bin_edges = np.unique(bin_edges)
+        if len(bin_edges) <= 1:  # Handling case where all values are the same or too close
+            bin_edges = np.array([bin_edges[0], bin_edges[0] + 1])  # Creating a dummy bin edge to avoid errors
+
+        num_labels = len(bin_edges) - 1
+        labels = list(labels_colors.keys())[:num_labels]
+        case_data['cf_class'] = pd.cut(case_data[cf_col], bins=bin_edges, labels=labels, include_lowest=True)
 
         #ensure all classes exist
         for label in labels_colors.keys():
@@ -587,7 +608,7 @@ with tab2:
             y_large_diff = (y_max - y_quantile) > (y_quantile * 0.3)
 
             # Set axis range based on the above logic
-            x_range = [-5, (x_quantile if x_large_diff else x_max) * buff]
+            x_range = [0, (x_quantile if x_large_diff else x_max) * buff]
             y_range = [0, (y_quantile if y_large_diff else y_max) * buff]
         else:
             x_range = None
@@ -637,9 +658,6 @@ with tab2:
         return fig
 
 
-
-
-    #----------------------------------- MAIN ----------------------------------------
     
     #area calc
     def calc_area(df_in):
@@ -682,9 +700,6 @@ with tab2:
             cfua_data.rename(columns={'e': 'FAR', 'gfa': 'GFA', 'numfloors': 'Floors'}, inplace=True)
         
         return cfua_data, scale_axis
-    
-    
-    # ------- functions ----------
         
     def diversity_index(df_in,use_cols):
         df = df_in.copy()
@@ -734,9 +749,9 @@ with tab2:
         del df
         return df_out
     
-    #prepare data func to be used also in tab3..
+    #prepare data func to be used also in explorer..
     def prepare_data(selected_urb_file):
-        cfua_data, scale_axis = get_sample(selected_urb_file=selected_urb_file,filtered_names=filtered_names)
+        cfua_data, scale_axis = get_sample(selected_urb_file=selected_urb_file,filtered_names=names)
         cfua_data['residential-all'] = cfua_data['residential-small'] + cfua_data['residential-large']
         land_use_cols = ['residential-all','commercial','public']
         cfua_data = diversity_index(cfua_data,use_cols=land_use_cols)
@@ -744,64 +759,62 @@ with tab2:
         cfua_data = amenity_densities(cfua_data)
         return cfua_data, scale_axis
     
+    
+    # ------------------ main ------------------
     cfua_df = None
     if selected_urb_file != "...":
 
-        cfua_data, scale_axis = prepare_data(selected_urb_file)
+        #cfua_data, scale_axis = prepare_data(selected_urb_file)
+
+        if selected_urb_file != "All_samples":
+            file = f"{cfua_allas}CFUA/{selected_urb_file}.csv"
+            r = requests.get(file, stream=True)
+            data = io.BytesIO(r.content)
+            cfua_data = pd.read_csv(data)
+            cfua_data = cfua_data.loc[:, ~cfua_data.columns.str.startswith('Unnamed')]
+        else:
+            cfua_data = pd.DataFrame()
+            for name in names:
+                file = f"{cfua_allas}CFUA/{name}.csv"
+                r = requests.get(file, stream=True)
+                data = io.BytesIO(r.content)
+                city_df = pd.read_csv(data)
+                cfua_data = pd.concat([cfua_data,city_df])
+                cfua_data = cfua_data.loc[:, ~cfua_data.columns.str.startswith('Unnamed')]
+                del city_df
         
-        dropcols = ['city','wkt','other','miscellaneous','residential-all']
+        dropcols = ['city','wkt','consumer_urbanism','time_spending','worklife','miscellaneous']
         cfua_df = cfua_data.drop(columns=dropcols)
         #st.data_editor(cfua_df)
         #st.stop()
         
         # ------- cols for features --------
-        density_cols = cfua_df.drop(columns='clusterID').columns.tolist()[1:4]
-        land_use_cols = cfua_df.drop(columns='clusterID').columns.tolist()[7:9] + ['Consumer_urb_index','Time_spending_index']
-        cf_cols = cfua_df.drop(columns='clusterID').columns.tolist()[17:]
-        classification_sets = ['Carbon footprint','Consumer_urb_index','Time_spending_index']
+        density_cols = cfua_df.drop(columns='clusterID').columns.tolist()[2:4]
+        land_use_cols = cfua_df.drop(columns='clusterID').columns.tolist()[7:9]
+        cf_cols = cfua_df.drop(columns='clusterID').columns.tolist()[13:]
+        classification = cfua_df.drop(columns='clusterID').columns.tolist()[13:]
 
-        c1,c2,c3,c4 = st.columns(4)
-        yax = c1.selectbox('Density metric (y)',density_cols,index=2)
-        xax = c2.selectbox('Land-use index (x)',land_use_cols,index=1)
-        size = c3.selectbox('Carbon footprint (size)',cf_cols,index=0)
-        classify = c4.selectbox('Classification (color)',classification_sets,index=0)
-        
-        #classify
-        if classify == 'Carbon footprint':
-            classifier = size
-        else:
-            classifier = classify
+        c1,c2,c3 = st.columns(3)
+        yax = c1.selectbox('Density metric (y)',density_cols,index=0)
+        xax = c2.selectbox('Diversity metric (x)',land_use_cols,index=0)
+        size = c3.selectbox('Carbon footprint (size&color)',cf_cols,index=0)
         
         if yax != xax:
+            try:
+                scat_plot = carbon_vs_pois_scatter(cfua_df,
+                                    hovername='clusterID',
+                                    cf_col=size,
+                                    x_col=xax,
+                                    y_col=yax,
+                                    z_col=size,
+                                    scale_axis=True,
+                                    trendline=False,
+                                    bins=None,
+                                    title=f"CFUA scatter, Sample N = {len(cfua_df)}")
             
-            if selected_urb_file == "All_samples":
-                #drop large areas
-                cfua_df = cfua_df[cfua_df['area'] < 4000000] # > 4km2
-                
-            #st.data_editor(cfua_df)
-            if selected_urb_file != "All_samples":
-                custom_bins = None
-            else:
-                custom_bins = np.percentile(cfua_df[classifier].dropna(), [0, 25, 50, 75, 90])
-            
-            scat_plot = carbon_vs_pois_scatter(cfua_df,
-                                hovername='clusterID',
-                                cf_col=classifier,
-                                x_col=xax,
-                                y_col=yax,
-                                z_col=size,
-                                scale_axis=scale_axis,
-                                trendline=False,
-                                bins=custom_bins,
-                                title=f"CFUA scatter, Sample N = {len(cfua_df)}")
-            
-            st.plotly_chart(scat_plot, use_container_width=True, config = {'displayModeBar': False} )
-            
-            if selected_urb_file != "All_samples":
-                with st.expander('Cluster on map'):
-                    map_plot = plot_sample_areas(cfua_data,cf_col=classifier)
-                    st.plotly_chart(map_plot, use_container_width=True, config = {'displayModeBar': False} )
-                    st.data_editor(cfua_df.drop(columns=cfua_df.columns[-1],  axis=1))
+                st.plotly_chart(scat_plot, use_container_width=True, config = {'displayModeBar': False} )
+            except:
+                st.warning('Failed to plot scatter.')
                 
         with st.expander("Correlation matrix",expanded=True):
             colorscale_cont = [
@@ -818,6 +831,7 @@ with tab2:
             ]
 
             def single_corr_matrix(df, color_scale, sample_name, control_var=None):
+               
                 # Validate control_var
                 if control_var and control_var not in df.columns:
                     st.warning("Control variable {control_var} not found in DataFrame columns.")
@@ -875,8 +889,8 @@ with tab2:
                 fig = make_subplots(rows=rows, cols=cols, subplot_titles=unique_cities)
                 
                 for i, city in enumerate(unique_cities, start=1):
-                    city_df = df[df['city'] == city]
-                    heatmap_fig, corr_df = single_corr_matrix(city_df.drop(columns=['city','clusterID','wkt']), color_scale, city, control_var)
+                    city_df = df[df['city'] == city].drop(columns=['city','clusterID','wkt']).select_dtypes(include=np.number)
+                    heatmap_fig, corr_df = single_corr_matrix(city_df, color_scale, city, control_var)
                     del corr_df
                     # For each subplot, add the heatmap. Note: we need to extract the trace from heatmap_fig
                     for trace in heatmap_fig.data:
@@ -887,16 +901,18 @@ with tab2:
                                 title_text="Correlation Heatmaps by City, income level not controlled")
                 return fig
         
+            drop_from_corr = ['clusterID','type','floorcat']
             if selected_urb_file == "All_samples":
                 corvar = st.toggle('Income level controlled')
+                
                 if corvar:
-                    fig, corr_df = single_corr_matrix(cfua_df.drop(columns=['clusterID']),color_scale=colorscale_dicr,sample_name=selected_urb_file,
+                    fig, corr_df = single_corr_matrix(cfua_df.drop(columns=drop_from_corr),color_scale=colorscale_dicr,sample_name=selected_urb_file,
                                             control_var='Income Level decile')
                     st.plotly_chart(fig, use_container_width=True, config = {'displayModeBar': False} )
                     st.markdown('**Partial correlation results**')
                     st.data_editor(corr_df.describe())
                 else:
-                    fig, corr_df = single_corr_matrix(cfua_df.drop(columns=['clusterID']),color_scale=colorscale_dicr,sample_name=selected_urb_file,
+                    fig, corr_df = single_corr_matrix(cfua_df.drop(columns=drop_from_corr),color_scale=colorscale_dicr,sample_name=selected_urb_file,
                                             control_var=None)
                     st.plotly_chart(fig, use_container_width=True, config = {'displayModeBar': False} )
                 
@@ -906,198 +922,43 @@ with tab2:
                 st.plotly_chart(fig, use_container_width=True, config = {'displayModeBar': False} )
                 
             else:
-                fig, corr_df = single_corr_matrix(cfua_df.drop(columns=['clusterID']),color_scale=colorscale_dicr,sample_name=selected_urb_file)
+                fig, corr_df = single_corr_matrix(cfua_df.drop(columns=drop_from_corr),color_scale=colorscale_dicr,sample_name=selected_urb_file)
                 st.plotly_chart(fig, use_container_width=True, config = {'displayModeBar': False} )
                 
 
-#classifier
-with tab3:
-        
-    # ML classifier
-    def classifier(df_in,k=4):
-        feats = ['Floors','FAR','high-res-index','mixed-use','Time_spending_index','Consumer_urb_index']
-        df = df_in[feats].copy()
-        from sklearn.cluster import KMeans
-        from sklearn.tree import DecisionTreeClassifier, plot_tree
-        import matplotlib.pyplot as plt
-        # Applying K-Means clustering
-        kmeans = KMeans(n_clusters=k, random_state=42)
-        df['cluster'] = kmeans.fit_predict(df)
-        # Preparing the data
-        X = df.drop('cluster', axis=1)  # Features
-        y = df['cluster']  # Cluster labels as target
-        # Training a decision tree
-        clf = DecisionTreeClassifier(random_state=42)
-        clf.fit(X, y)
-        # Plotting the decision tree
-        plt.figure(figsize=(20,10))
-        plot_tree(clf, filled=True, feature_names=X.columns, class_names=True)
-        mytree = plt.show()
-        return st.pyplot(mytree)
-    
-    selected_urb_file2 = st.selectbox('Select sample to classify',selectbox_names)
-    if selected_urb_file2 != "...":
-        cfua_data, scalefix_notused = prepare_data(selected_urb_file2)
-        st.subheader('Testing density classification based on area medians..')
-        with st.form('Urban types'):
-            st.subheader('Define metrics for urban types')
-            #classifier form
-            c0,c1,c2,c3 = st.columns([2,3,3,3])
-            c0.subheader("'Frank'") #LL
-            LL_far = c1.slider('FAR',0.0,2.0,[0.0,0.2],0.1,key='LL_far')
-            LL_floors = c2.slider('Floors',1,9,[1,2],1,key='LL_floors')
-            LL_urb = c3.slider('Urbanism',0,100,[1,100],10,key='LL_urb')
-            c0.markdown("###")
-            c0.markdown("###")
-            c0.subheader("'Jacobs'") #LH
-            LH_far = c1.slider('FAR',0.0,2.0,[0.3,1.0],0.1,key='LH_far')
-            LH_floors = c2.slider('Floors',1,9,[1,3],1,key='LH_floors')
-            LH_urb = c3.slider('Urbanism',0,100,[0,50],10,key='LH_urb')
-            c0.markdown("###")
-            c0.markdown("###")
-            c0.subheader("'Corbu'") #HL
-            HL_far = c1.slider('FAR',0.0,2.0,[0.8,2.0],0.1,key='HL_far')
-            HL_floors = c2.slider('Floors',1,9,[5,9],1,key='HL_floors')
-            HL_urb = c3.slider('Urbanism',0,100,[0,50],10,key='HL_urb')
-            c0.markdown("###")
-            c0.markdown("###")
-            c0.subheader("'Cerda'") #HH
-            HH_far = c1.slider('FAR',0.0,2.0,[0.5,2.0],0.1,key='HH_far')
-            HH_floors = c2.slider('Floors',1,9,[4,9],1,key='HH_floors')
-            HH_urb = c3.slider('Urbanism',0,100,[10,100],10,key='HH_urb')
-            c0.markdown("###")
-            c0.markdown("###")
-            
-            update = st.form_submit_button('Apply')
-            #st.markdown("---")
-        
-        #manual classifier
-        classification_rules = {
-            # low-low = LL
-            'Frank': [
-                {'F1': 'FAR', 'min': LL_far[0], 'max': LL_far[1],
-                 'F2': 'Floors', 'min2': LL_floors[0], 'max2': LL_floors[1]}
-            ],
-            # low-high = LH
-            'Jacobs': [
-                {'F1': 'FAR', 'min': LH_far[0], 'max': LH_far[1],
-                 'F2': 'Floors', 'min2': LH_floors[0], 'max2': LH_floors[1],
-                 'F3': 'Consumer_urb_index', 'min3': LH_urb[0], 'max3': LH_urb[1]}
-            ],
-            # high-low = HL
-            'Corbu': [
-                {'F1': 'FAR', 'min': HL_far[0], 'max': HL_far[1],
-                 'F2': 'Floors', 'min2': HL_floors[0], 'max2': HL_floors[1],
-                 'F3': 'Consumer_urb_index', 'min3': HL_urb[0], 'max3': HL_urb[1]}
-            ],
-            # high-high = HH
-            'Cerda': [
-                {'F1': 'FAR', 'min': HH_far[0], 'max': HH_far[1],
-                 'F2': 'Floors', 'min2': HH_floors[0], 'max2': HH_floors[1],
-                 'F3': 'Consumer_urb_index', 'min3': HH_urb[0], 'max3': HH_urb[1]}
-            ]
-        }
-        
-        def classify_combined(row, rules):
-            for class_name, conditions in rules.items():
-                for condition in conditions:
-                    if condition['min'] <= row[condition['F1']] < condition['max'] and \
-                    condition['min2'] <= row[condition['F2']] < condition['max2'] and \
-                    ('F3' not in condition or (condition['min3'] <= row[condition['F3']] < condition['max3'])) and \
-                    ('F4' not in condition or (condition['min4'] <= row[condition['F4']] < condition['max4'])):
-                        return class_name
-            return 'Uncat'
-        
-        def classify_sequentially(df, classification_rules):
-            # Initialize a column for classification results if not already present
-            if 'Urban_class' not in df.columns:
-                df['Urban_class'] = None
-
-            for class_name, conditions in classification_rules.items():
-                for condition in conditions:
-                    # Constructing the condition for current class
-                    # Start with rows not yet classified
-                    current_condition = df['Urban_class'].isnull()
-
-                    # Check each specified feature condition
-                    current_condition &= df[condition['F1']].between(condition['min'], condition['max'], inclusive='left')
-                    current_condition &= df[condition['F2']].between(condition['min2'], condition['max2'], inclusive='left')
-                    if 'F3' in condition and 'min3' in condition and 'max3' in condition:
-                        current_condition &= df[condition['F3']].between(condition['min3'], condition['max3'], inclusive='left')
-                    
-                    # Update classification for rows that meet the current condition
-                    df.loc[current_condition, 'Urban_class'] = class_name
-            df.loc[df['Urban_class'].isna(),'Urban_class'] = "Uncat"
-            return df
-
-        if update:
-            #drop large areas
-            df_classified = cfua_data.copy()
-
-            #df_classified['Urban_class'] =df_classified.apply(classify_combined, rules=classification_rules, axis=1)
-            df_classified = classify_sequentially(df_classified,classification_rules)
-            df_classified.loc[(df_classified['Urban_class'] == "Uncat") & 
-                              (df_classified['mixed-use'] > 30) &
-                              (df_classified['Consumer_urb_index'] < 30),
-                               'Urban_class'] = "Mixed"
-            df_classified.loc[(df_classified['area'] > 4000000) &
-                              (df_classified['Consumer_urb_index'] > 50),
-                              'Urban_class'] = "Glaeser"
-            
-            feats = ['FAR','Floors','mixed-use','Consumer_urb_index']
-            
-            urb_type_colors = {
-                'Glaeser':'cornflowerblue',
-                'Cerda':'orange',
-                'Corbu':'Grey',
-                'Jacobs':'brown',
-                'Frank':'burlywood',
-                'Mixed':'violet',
-                'Uncat':'white'
-            }
-            def check_plot(df):
-                df['geometry'] = df.wkt.apply(wkt.loads)
-                gdf = gpd.GeoDataFrame(df,geometry='geometry',crs=4326)
-                lat = gdf.unary_union.centroid.y
-                lon = gdf.unary_union.centroid.x
-                check_fig = px.choropleth_mapbox(gdf,
-                                geojson=gdf.geometry,
-                                locations=gdf.index,
-                                title="Classified areas",
-                                color='Urban_class',
-                                hover_name='clusterID',
-                                hover_data = feats,
-                                color_discrete_map=urb_type_colors,
-                                #category_orders={"cf_class":['Top','High','Low','Bottom']},
-                                #labels={'cf_class': f'{cf_col} level'},
-                                center={"lat": lat, "lon": lon},
-                                mapbox_style=my_style,
-                                zoom=10,
-                                opacity=0.5,
-                                width=900,
-                                height=900
-                                )
-                check_fig.update_layout(margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=700,
-                                    legend=dict(
-                                        yanchor="top",
-                                        y=0.97,
-                                        xanchor="left",
-                                        x=0.02
-                                    )
-                                    )
-                return check_fig
-            
-            st.plotly_chart(check_plot(df_classified), use_container_width=True, config = {'displayModeBar': False} )
-        
-            #distribution
-            fig_bar = px.bar(df_classified, x='GFA', y='Urban_class', color='Urban_class',
-                             orientation='h', title='Volume distribution')
-            fig_bar.update_layout(showlegend=False)
-            st.plotly_chart(fig_bar, use_container_width=True, config = {'displayModeBar': False} )
-        
-
 with tab4:
-    st.subheader('Land-use classifier test V2..')
+    reg_file = f"{cfua_allas}REG/cfua_for_regression.csv"
+    res = requests.get(reg_file, stream=True)
+    reg_data = io.BytesIO(res.content)
+    cf_all = pd.read_csv(reg_data)
+    cf_all = cf_all.loc[:, ~cf_all.columns.str.startswith('Unnamed')]
+    cfua_reg = cf_all.loc[~cf_all['clusterID'].isna()]
+    
+    with st.expander('data'):
+        st.data_editor(cfua_reg)
+        st.text(f"Sample size {len(cfua_reg)}")
+        
+    def calculate_per_capita(df, cluster_col, cols):
+        grouped = df.groupby(cluster_col)
+        per_capita = round(grouped[cols].sum().div(grouped.size(), axis=0),-1)
+        return per_capita
+    s1,s2 = st.columns(2)
+    usecols = cfua_reg.columns.tolist()[2:-9]
+    result = calculate_per_capita(cfua_reg, 'urban_type', usecols).reset_index()
+    #
+    bivar_fig = px.bar(result, x="urban_type", y=usecols[1:], title="Per capita footprints in urban types")
+    st.plotly_chart(bivar_fig, use_container_width=True, config = {'displayModeBar': False} )
+
+    #legend
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    legend = conn.read()
+    st.subheader('Urban types')
+    st.table(legend)
+    
+    
+
+with tab5:
+    st.subheader('Land-use explorer')
     
     def get_osm_landuse(add=None,polygon=None,radius=500,tags = {'natural':True,'landuse':True},exclude=['bay','water'],removeoverlaps=False):
         if add is not None:
@@ -1216,14 +1077,21 @@ with tab4:
         return selected_rows.drop('Select', axis=1)
         
     # -------------- UI ----------------
-    useadd = st.toggle('Use address')
+    useadd = False #st.toggle('Use address')
     gdfs = None
     s1,s2 = st.columns(2)
     if not useadd:
-        selected_urb_file3 = s1.selectbox('Select sample to classify',selectbox_names,key='classifier2')
+        selected_urb_file3 = s1.selectbox('Select cluster to study',selectbox_names[:-1],key='classifier')
         plot_type = s2.radio("Type",['land_use','land_cover'],horizontal=True)
+        
         if selected_urb_file3 != "...":
-            cfua_data3, scalefix_notused = prepare_data(selected_urb_file3)
+            file = f"{cfua_allas}CFUA/{selected_urb_file3}.csv"
+            r = requests.get(file, stream=True)
+            data = io.BytesIO(r.content)
+            cfua_data3 = pd.read_csv(data)
+            cfua_data3 = cfua_data.loc[:, ~cfua_data.columns.str.startswith('Unnamed')]
+            cfua_data3 = cfua_data3.drop(columns=['consumer_urbanism','time_spending','worklife','miscellaneous'])
+            
             with st.expander('case areas',expanded=True):
                 selected = dataframe_with_selections(cfua_data3)
             
@@ -1266,6 +1134,13 @@ with tab4:
         with st.status(plot_type,expanded=True):
             st.plotly_chart(fig_osm, use_container_width=True, config = {'displayModeBar': False})
             st.metric('Shannon index',value=shi)
+
+
+
+
+
+
+
 
 
 #footer
