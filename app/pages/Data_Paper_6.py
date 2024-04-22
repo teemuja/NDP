@@ -16,7 +16,19 @@ import plotly.express as px
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 import pingouin as pg
+
+#ML
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import r2_score
+
+#g
 from streamlit_gsheets import GSheetsConnection
 
 
@@ -759,6 +771,14 @@ with tab3:
         cfua_data = amenity_densities(cfua_data)
         return cfua_data, scale_axis
     
+    #@st.cache_data()
+    def allas_get(filepath):
+        r = requests.get(filepath, stream=True)
+        data = io.BytesIO(r.content)
+        cfua_data = pd.read_csv(data)
+        cfua_data = cfua_data.loc[:, ~cfua_data.columns.str.startswith('Unnamed')]
+        return cfua_data
+        
     
     # ------------------ main ------------------
     cfua_df = None
@@ -768,19 +788,14 @@ with tab3:
 
         if selected_urb_file != "All_samples":
             file = f"{cfua_allas}CFUA/{selected_urb_file}.csv"
-            r = requests.get(file, stream=True)
-            data = io.BytesIO(r.content)
-            cfua_data = pd.read_csv(data)
-            cfua_data = cfua_data.loc[:, ~cfua_data.columns.str.startswith('Unnamed')]
+            cfua_data = allas_get(file)
         else:
             cfua_data = pd.DataFrame()
             for name in names:
                 file = f"{cfua_allas}CFUA/{name}.csv"
-                r = requests.get(file, stream=True)
-                data = io.BytesIO(r.content)
-                city_df = pd.read_csv(data)
+                file = f"{cfua_allas}CFUA/{selected_urb_file}.csv"
+                city_df = allas_get(file)
                 cfua_data = pd.concat([cfua_data,city_df])
-                cfua_data = cfua_data.loc[:, ~cfua_data.columns.str.startswith('Unnamed')]
                 del city_df
         
         dropcols = ['city','wkt','consumer_urbanism','time_spending','worklife','miscellaneous']
@@ -928,13 +943,10 @@ with tab3:
 
 with tab4:
     reg_file = f"{cfua_allas}REG/cfua_for_regression.csv"
-    res = requests.get(reg_file, stream=True)
-    reg_data = io.BytesIO(res.content)
-    cf_all = pd.read_csv(reg_data)
-    cf_all = cf_all.loc[:, ~cf_all.columns.str.startswith('Unnamed')]
+    cf_all = allas_get(reg_file)
     cfua_reg = cf_all.loc[~cf_all['clusterID'].isna()]
     
-    with st.expander('data'):
+    with st.expander('cluster data with per capita values'):
         hide = ['consumer_urbanism','time_spending','worklife','miscellaneous']
         st.data_editor(cfua_reg.drop(columns=hide))
         st.text(f"Sample size {len(cfua_reg)}")
@@ -985,8 +997,173 @@ with tab4:
         st.subheader('Type combination counts in the sample')
         featcols = ['urban_type','combined_class']
         st.table(cfua_reg[featcols].value_counts())
-
+        
+    st.markdown('---')
     
+    with st.status('Feetching original data..',expanded=True) as status:
+        
+        @st.cache_data()
+        def get_origs():
+            orig_file = f"{cfua_allas}CF/CFORIG_2022-12-04.csv"
+            col_key_file = f"{cfua_allas}CF/cf_col_keys.csv"
+            calc_key_file = f"{cfua_allas}CF/cf_col_keys.csv"
+            cf_orig = allas_get(orig_file)
+            cf_col_keys = allas_get(col_key_file)
+            cf_calc_keys = allas_get(calc_key_file)
+            return cf_orig,cf_col_keys,cf_calc_keys
+        cf_orig,cf_keys,calc_keys = get_origs()
+        join = st.toggle('Filter by clusters')
+        if join:
+            @st.cache_data()
+            def join(cf_orig,cfua_reg):
+                cf_orig['lat'] = cf_orig['lat'].str.replace(',', '.').astype(float)
+                cf_orig['lon'] = cf_orig['lon'].str.replace(',', '.').astype(float)
+                gdf_points = gpd.GeoDataFrame(
+                    cf_orig, geometry=[Point(xy) for xy in zip(cf_orig.lon, cf_orig.lat)],
+                    crs='EPSG:4326'
+                )
+                gdf_polygons = gpd.GeoDataFrame(
+                    cfua_reg, geometry=gpd.GeoSeries.from_wkt(cfua_reg['wkt']),
+                    crs='EPSG:4326'
+                )
+                cf_orig_filtered_gdf = gpd.sjoin(gdf_points, gdf_polygons, op='within', how='inner')
+                cf_orig_out = cf_orig_filtered_gdf[cf_orig.columns.tolist()]
+                return cf_orig_out
+            cf_orig = join(cf_orig,cfua_reg)
+
+        col_mapping_dict = pd.Series(cf_keys.name.values, index=cf_keys.key).to_dict()
+        calc_mapping_dict = pd.Series(calc_keys.name.values, index=cf_keys.key).to_dict()
+        cf_orig.rename(columns=col_mapping_dict, inplace=True)
+        cf_orig.rename(columns=calc_mapping_dict, inplace=True)
+        st.data_editor(cf_orig, key='orig')
+        st.text(len(cf_orig))
+        status.update(label="Original data ready", state="complete", expanded=False)
+        
+        st.stop()
+    
+    # -------- regressio --------
+    def train_and_evaluate(df, co2_col, include_type_col=False):
+        # Define categorical and numeric features
+        categorical_features = ['city']
+        if include_type_col:
+            categorical_features.append('urban_type')
+            
+        numeric_features = ['Income Level decile', 'Number of persons in household']
+        df[numeric_features] = df[numeric_features].apply(pd.to_numeric, errors='coerce')
+        
+        X = df.drop(columns=[co2_col] + ([] if include_type_col else ['urban_type']))
+        y = df[co2_col]
+        
+        # Pipelines for data preprocessing
+        numeric_transformer = Pipeline(steps=[
+            ('imputer', SimpleImputer(strategy='median')),
+            ('scaler', StandardScaler())
+        ])
+        categorical_transformer = Pipeline(steps=[
+            ('imputer', SimpleImputer(strategy='most_frequent')),
+            ('onehot', OneHotEncoder(handle_unknown='ignore'))
+        ])
+        preprocessor = ColumnTransformer([
+            ('num', numeric_transformer, numeric_features),
+            ('cat', categorical_transformer, categorical_features)
+        ])
+        
+        # Pipeline including the regressor
+        model = Pipeline([
+            ('preprocessor', preprocessor),
+            ('regressor', LinearRegression())
+        ])
+        
+        # Split data and train model
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
+        
+        # Calculate R-squared score
+        return r2_score(y_test, y_pred)
+
+    def compare_models(df, co2_cols):
+        results = []
+        for city in df['city'].unique():
+            city_df = df[df['city'] == city]
+            for co2_col in co2_cols:
+                r2_without = train_and_evaluate(city_df, co2_col, include_type_col=False)
+                r2_with = train_and_evaluate(city_df, co2_col, include_type_col=True)
+                results.append({
+                    'City': city,
+                    'CO2 Column': co2_col,
+                    'R2 Without urban_type': r2_without,
+                    'R2 With urban_type': r2_with,
+                    'Difference in R2': r2_with - r2_without
+                })
+        return pd.DataFrame(results)
+
+    # -------- regressio --------
+    
+    
+    st.subheader('Multi-regression')
+    cf_cols = st.multiselect('',options=regcols[:-1],default=regcols[1:-6])
+    
+    with st.expander('method', expanded=False):
+        code = '''
+            def train_and_evaluate(df, co2_col, include_type_col=False):
+                # Define categorical and numeric features
+                categorical_features = ['city']
+                if include_type_col:
+                    categorical_features.append('urban_type')
+                    
+                numeric_features = ['Income Level decile', 'Number of persons in household']
+                df[numeric_features] = df[numeric_features].apply(pd.to_numeric, errors='coerce')
+                
+                X = df.drop(columns=[co2_col] + ([] if include_type_col else ['urban_type']))
+                y = df[co2_col]
+                
+                # Pipelines for data preprocessing
+                numeric_transformer = Pipeline(steps=[
+                    ('imputer', SimpleImputer(strategy='median')),
+                    ('scaler', StandardScaler())
+                ])
+                categorical_transformer = Pipeline(steps=[
+                    ('imputer', SimpleImputer(strategy='most_frequent')),
+                    ('onehot', OneHotEncoder(handle_unknown='ignore'))
+                ])
+                preprocessor = ColumnTransformer([
+                    ('num', numeric_transformer, numeric_features),
+                    ('cat', categorical_transformer, categorical_features)
+                ])
+                
+                # Pipeline including the regressor
+                model = Pipeline([
+                    ('preprocessor', preprocessor),
+                    ('regressor', LinearRegression())
+                ])
+                
+                # Split data and train model
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                model.fit(X_train, y_train)
+                y_pred = model.predict(X_test)
+                
+                # Calculate R-squared score
+                return r2_score(y_test, y_pred)
+            '''
+        st.code(code, language='python')
+        
+    if len(cf_cols) > 0:
+        comp_df = compare_models(cfua_reg,co2_cols=cf_cols)
+        def plot_box_difference(results_df):
+            fig = px.box(results_df, x='CO2 Column', y='Difference in R2',
+                        color='CO2 Column', title='Box Plot of R-squared Differences by CO2 Column',
+                        labels={'Difference in R2': 'Change in R-squared', 'CO2 Column': 'CO2 Footprint Type'})
+            
+            fig.update_layout(plot_bgcolor='white', margin=dict(t=60, l=0, r=0, b=0))
+            return fig
+        st.plotly_chart(plot_box_difference(comp_df), use_container_width=True, config = {'displayModeBar': False} )
+        st.data_editor(comp_df)
+    
+    
+    # -------- regressio --------
+
+
 
 with tab5:
     st.subheader('Land-use explorer')
