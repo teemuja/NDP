@@ -935,26 +935,57 @@ with tab4:
     cfua_reg = cf_all.loc[~cf_all['clusterID'].isna()]
     
     with st.expander('data'):
-        st.data_editor(cfua_reg)
+        hide = ['consumer_urbanism','time_spending','worklife','miscellaneous']
+        st.data_editor(cfua_reg.drop(columns=hide))
         st.text(f"Sample size {len(cfua_reg)}")
         
     def calculate_per_capita(df, cluster_col, cols):
         grouped = df.groupby(cluster_col)
         per_capita = round(grouped[cols].sum().div(grouped.size(), axis=0),-1)
         return per_capita
-    s1,s2 = st.columns(2)
-    usecols = cfua_reg.columns.tolist()[2:-9]
-    result = calculate_per_capita(cfua_reg, 'urban_type', usecols).reset_index()
-    #
-    bivar_fig = px.bar(result, x="urban_type", y=usecols[1:], title="Per capita footprints in urban types")
+    
+    regcols = cfua_reg.columns.tolist()[19:-6]
+    
+    result = calculate_per_capita(cfua_reg, 'urban_type', regcols).reset_index()
+    
+    #the plot
+    bivar_fig = px.bar(result, x="urban_type", y=regcols[1:-1], title="Per capita footprints in urban types")
     st.plotly_chart(bivar_fig, use_container_width=True, config = {'displayModeBar': False} )
 
-    #legend
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    legend = conn.read()
-    st.subheader('Urban types')
-    st.table(legend)
-    
+    with st.expander('Expl'):
+        #legend
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        legend = conn.read()
+        st.subheader('Urban base types')
+        st.table(legend)
+        expl = """
+        Thresholds (based on the quartiles in the sample):  
+        - 'gfa': low < 310 sqm / high > 920 sqm medians for buildings in the cluster  
+        - 'far': low < 0.15 / high > 0.5 
+        - 'consumer_urbanism_sdi': low < 3.4 / high > 4.0 for shannon diversity of amenities
+        - 'time_spending_sdi': low < 2.3 / high > 2.9
+        """
+        st.caption(expl)
+        
+        thresholds = {
+            'gfa': {'low': (130.0, 309.99999999999994),
+            'med': (309.99999999999994, 919.9999999999998),
+            'high': (919.9999999999998, 12140.0)},
+            'far': {'low': (0.15, 0.30999999999999994),
+            'med': (0.30999999999999994, 0.4699999999999999),
+            'high': (0.4699999999999999, 1.755)},
+            'consumer_urbanism_sdi': {'low': (0.0, 3.45404079673468),
+            'med': (3.45404079673468, 4.096803198966489),
+            'high': (4.096803198966489, 4.906429860839397)},
+            'time_spending_sdi': {'low': (0.0, 2.299896391167892),
+            'med': (2.299896391167892, 2.8527241956246545),
+            'high': (2.8527241956246545, 3.4977765919331216)}
+            }
+        
+        st.subheader('Type combination counts in the sample')
+        featcols = ['urban_type','combined_class']
+        st.table(cfua_reg[featcols].value_counts())
+
     
 
 with tab5:
