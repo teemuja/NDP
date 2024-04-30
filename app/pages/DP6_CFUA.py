@@ -27,6 +27,8 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import r2_score
+import statsmodels.api as sm
+import statsmodels.formula.api as smf
 
 #g
 from streamlit_gsheets import GSheetsConnection
@@ -1000,6 +1002,8 @@ with tab4:
         
     st.markdown('---')
     
+    st.subheader('Multi-regression study')
+    cf_orig = None
     with st.status('Feetching original data..',expanded=True) as status:
         
         @st.cache_data()
@@ -1012,157 +1016,196 @@ with tab4:
             cf_calc_keys = allas_get(calc_key_file)
             return cf_orig,cf_col_keys,cf_calc_keys
         cf_orig,cf_keys,calc_keys = get_origs()
-        join = st.toggle('Filter by clusters')
-        if join:
-            @st.cache_data()
-            def join(cf_orig,cfua_reg):
-                cf_orig['lat'] = cf_orig['lat'].str.replace(',', '.').astype(float)
-                cf_orig['lon'] = cf_orig['lon'].str.replace(',', '.').astype(float)
-                gdf_points = gpd.GeoDataFrame(
-                    cf_orig, geometry=[Point(xy) for xy in zip(cf_orig.lon, cf_orig.lat)],
-                    crs='EPSG:4326'
-                )
-                gdf_polygons = gpd.GeoDataFrame(
-                    cfua_reg, geometry=gpd.GeoSeries.from_wkt(cfua_reg['wkt']),
-                    crs='EPSG:4326'
-                )
-                cf_orig_filtered_gdf = gpd.sjoin(gdf_points, gdf_polygons, op='within', how='inner')
-                cf_orig_out = cf_orig_filtered_gdf[cf_orig.columns.tolist()]
-                return cf_orig_out
-            cf_orig = join(cf_orig,cfua_reg)
-
+        
+        #map col names
         col_mapping_dict = pd.Series(cf_keys.name.values, index=cf_keys.key).to_dict()
         calc_mapping_dict = pd.Series(calc_keys.name.values, index=cf_keys.key).to_dict()
         cf_orig.rename(columns=col_mapping_dict, inplace=True)
         cf_orig.rename(columns=calc_mapping_dict, inplace=True)
+        cf_orig.columns = cf_orig.columns.str.replace(r'\W+', '_').str.strip('_').str.replace(r'^(\d+)', r'_\1')
         st.data_editor(cf_orig, key='orig')
         st.text(len(cf_orig))
+            
         status.update(label="Original data ready", state="complete", expanded=False)
         
-        st.stop()
+        #st.stop()
     
-    # -------- regressio --------
-    def train_and_evaluate(df, co2_col, include_type_col=False):
-        # Define categorical and numeric features
-        categorical_features = ['city']
-        if include_type_col:
-            categorical_features.append('urban_type')
+    # -------- regression --------
+    if cf_orig is not None:
+        @st.cache_data()
+        def join(cf_orig,cfua_reg):
+            cf_orig['lat'] = cf_orig['lat'].str.replace(',', '.').astype(float)
+            cf_orig['lon'] = cf_orig['lon'].str.replace(',', '.').astype(float)
+            gdf_points = gpd.GeoDataFrame(
+                cf_orig, geometry=[Point(xy) for xy in zip(cf_orig.lon, cf_orig.lat)],
+                crs='EPSG:4326'
+            )
+            gdf_polygons = gpd.GeoDataFrame(
+                cfua_reg, geometry=gpd.GeoSeries.from_wkt(cfua_reg['wkt']),
+                crs='EPSG:4326'
+            )
+            cf_orig_filtered_gdf = gpd.sjoin(gdf_points, gdf_polygons, op='within', how='inner')
+            columns_to_keep = cf_orig.columns.tolist() + ['urban_type']
+            cf_orig_out = cf_orig_filtered_gdf[columns_to_keep]
+            return cf_orig_out
+        
+        cf_filtered = join(cf_orig,cfua_reg)
+        
+    def analyze_regs_v1(df):
+        # df for results
+        reg_results = pd.DataFrame(columns=['Domains', 'Model 1 Beta', 'Model 1 P-Value', 'Model 2 Beta', 'Model 2 P-Value'])
+
+        # define cf domains
+        domains = df.columns.drop('urban_type')  # remove urban_type
+        
+        # loop the domains
+        for domain in domains:
+            df[domain] = pd.to_numeric(df[domain], errors='coerce')
+            try:
+                model1 = smf.ols(f"{domain} ~ 1", data=df).fit()  #without urban_type..
+                print(f"Model 1 fitted successfully for {domain}")
+            except Exception as e:
+                print(f"Failed to fit Model 1 for {domain}: {e}")
+            try:
+                model2 = smf.ols(f"{domain} ~ C(urban_type)", data=df).fit() #with urban_type
+                print(f"Model 2 fitted successfully for {domain}")
+            except Exception as e:
+                print(f"Failed to fit Model 2 for {domain}: {e}")
             
-        numeric_features = ['Income Level decile', 'Number of persons in household']
-        df[numeric_features] = df[numeric_features].apply(pd.to_numeric, errors='coerce')
+            # collect results
+            model1_beta = model1.params['Intercept']
+            model1_p = model1.pvalues['Intercept']
+            model2_beta = model2.params.drop('Intercept')  # only urban_type coefs..
+            model2_p = model2.pvalues.drop('Intercept')  # ..and p-valus..
+            
+            # result df for the domain
+            for urban_type in model2_beta.index:
+                reg_results = reg_results.append({
+                    'Domains': domain,
+                    'Model 1 Beta': model1_beta,
+                    'Model 1 P-Value': model1_p,
+                    'Model 2 Beta': model2_beta[urban_type],
+                    'Model 2 P-Value': model2_p[urban_type]
+                }, ignore_index=True)
+        #group..
+        grouped_result = reg_results.groupby(['Domains']).mean()
+        return grouped_result
+    
+    def analyze_regs_v2(df, urban_type, indep_vars):
         
-        X = df.drop(columns=[co2_col] + ([] if include_type_col else ['urban_type']))
-        y = df[co2_col]
-        
-        # Pipelines for data preprocessing
-        numeric_transformer = Pipeline(steps=[
-            ('imputer', SimpleImputer(strategy='median')),
-            ('scaler', StandardScaler())
-        ])
-        categorical_transformer = Pipeline(steps=[
-            ('imputer', SimpleImputer(strategy='most_frequent')),
-            ('onehot', OneHotEncoder(handle_unknown='ignore'))
-        ])
-        preprocessor = ColumnTransformer([
-            ('num', numeric_transformer, numeric_features),
-            ('cat', categorical_transformer, categorical_features)
-        ])
-        
-        # Pipeline including the regressor
-        model = Pipeline([
-            ('preprocessor', preprocessor),
-            ('regressor', LinearRegression())
-        ])
-        
-        # Split data and train model
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
-        
-        # Calculate R-squared score
-        return r2_score(y_test, y_pred)
+        reg_results = pd.DataFrame(index=indep_vars,
+                                columns=['Model 1 Beta', 'Model 1 P-Value', 'Model 2 Beta', 'Model 2 P-Value'])
 
-    def compare_models(df, co2_cols):
-        results = []
-        for city in df['city'].unique():
-            city_df = df[df['city'] == city]
-            for co2_col in co2_cols:
-                r2_without = train_and_evaluate(city_df, co2_col, include_type_col=False)
-                r2_with = train_and_evaluate(city_df, co2_col, include_type_col=True)
-                results.append({
-                    'City': city,
-                    'CO2 Column': co2_col,
-                    'R2 Without urban_type': r2_without,
-                    'R2 With urban_type': r2_with,
-                    'Difference in R2': r2_with - r2_without
-                })
-        return pd.DataFrame(results)
+        for var in indep_vars:
+            # Convert to numeric if not the urban_type column
+            if var != urban_type:
+                df[var] = pd.to_numeric(df[var], errors='coerce')
 
-    # -------- regressio --------
-    
-    
-    st.subheader('Multi-regression')
-    cf_cols = st.multiselect('',options=regcols[:-1],default=regcols[1:-6])
-    
-    with st.expander('method', expanded=False):
+            # Fit Model 1 (without urban type)
+            if var != urban_type:
+                model1_formula = f"{var} ~ 1"
+                model1 = smf.ols(model1_formula, data=df).fit()
+                reg_results.at[var, 'Model 1 Beta'] = model1.params['Intercept']
+                reg_results.at[var, 'Model 1 P-Value'] = model1.pvalues['Intercept']
+            else:
+                reg_results.at[var, 'Model 1 Beta'] = None
+                reg_results.at[var, 'Model 1 P-Value'] = None
+
+            # Fit Model 2 (with urban type as a factor)
+            if var != urban_type:
+                model2_formula = f"{var} ~ C({urban_type})"
+                model2 = smf.ols(model2_formula, data=df).fit()
+                urban_type_categories = df[urban_type].unique()
+                for category in urban_type_categories:
+                    cat_coef = f"C({urban_type})[T.{category}]"
+                    if cat_coef in model2.params:
+                        reg_results.at[var, 'Model 2 Beta'] = model2.params[cat_coef]
+                        reg_results.at[var, 'Model 2 P-Value'] = model2.pvalues[cat_coef]
+                    else:
+                        reg_results.at[var, 'Model 2 Beta'] = None
+                        reg_results.at[var, 'Model 2 P-Value'] = None
+            else:
+                # do not include type in Model 2 regression
+                reg_results.at[var, 'Model 2 Beta'] = None
+                reg_results.at[var, 'Model 2 P-Value'] = None
+
+        return reg_results
+            
+    if cf_filtered is not None:
+        orig_cols = cf_orig.columns.tolist()
+        default_cols = [c for c in orig_cols if c.startswith('cu')]
+        c1,c2 = st.columns(2)
+        cf_regcols = c1.multiselect('Dependent vars (domains)',options=orig_cols,default=default_cols)
+        indeps_defs = ['hh_inc_cap_dec','Age','Gender','Education_level']
+        indeps = c2.multiselect('Indepependent vars',options=orig_cols,default=indeps_defs)
+        
+        if len(cf_regcols) > 0:
+            use_cols = cf_regcols + indeps + ['urban_type']
+            reg_result = analyze_regs_v2(cf_filtered[use_cols],urban_type="urban_type",indep_vars=indeps)
+            st.data_editor(reg_result,use_container_width=True)
+            st.caption("Model 1: withOUT urban type / Model 2: with urban type")
+
+    with st.expander('The method', expanded=False):
         code = '''
-            def train_and_evaluate(df, co2_col, include_type_col=False):
-                # Define categorical and numeric features
-                categorical_features = ['city']
-                if include_type_col:
-                    categorical_features.append('urban_type')
-                    
-                numeric_features = ['Income Level decile', 'Number of persons in household']
-                df[numeric_features] = df[numeric_features].apply(pd.to_numeric, errors='coerce')
-                
-                X = df.drop(columns=[co2_col] + ([] if include_type_col else ['urban_type']))
-                y = df[co2_col]
-                
-                # Pipelines for data preprocessing
-                numeric_transformer = Pipeline(steps=[
-                    ('imputer', SimpleImputer(strategy='median')),
-                    ('scaler', StandardScaler())
-                ])
-                categorical_transformer = Pipeline(steps=[
-                    ('imputer', SimpleImputer(strategy='most_frequent')),
-                    ('onehot', OneHotEncoder(handle_unknown='ignore'))
-                ])
-                preprocessor = ColumnTransformer([
-                    ('num', numeric_transformer, numeric_features),
-                    ('cat', categorical_transformer, categorical_features)
-                ])
-                
-                # Pipeline including the regressor
-                model = Pipeline([
-                    ('preprocessor', preprocessor),
-                    ('regressor', LinearRegression())
-                ])
-                
-                # Split data and train model
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-                model.fit(X_train, y_train)
-                y_pred = model.predict(X_test)
-                
-                # Calculate R-squared score
-                return r2_score(y_test, y_pred)
-            '''
-        st.code(code, language='python')
-        
-    if len(cf_cols) > 0:
-        comp_df = compare_models(cfua_reg,co2_cols=cf_cols)
-        def plot_box_difference(results_df):
-            fig = px.box(results_df, x='CO2 Column', y='Difference in R2',
-                        color='CO2 Column', title='Box Plot of R-squared Differences by CO2 Column',
-                        labels={'Difference in R2': 'Change in R-squared', 'CO2 Column': 'CO2 Footprint Type'})
-            
-            fig.update_layout(plot_bgcolor='white', margin=dict(t=60, l=0, r=0, b=0))
-            return fig
-        st.plotly_chart(plot_box_difference(comp_df), use_container_width=True, config = {'displayModeBar': False} )
-        st.data_editor(comp_df)
-    
-    
-    # -------- regressio --------
+                def analyze_regs(df, urban_type, indep_vars):
+                    reg_results = pd.DataFrame(index=indep_vars,
+                                            columns=['Model 1 Beta', 'Model 1 P-Value', 'Model 2 Beta', 'Model 2 P-Value'])
 
+                    for var in indep_vars:
+                        # Convert to numeric if not the urban_type column
+                        if var != urban_type:
+                            df[var] = pd.to_numeric(df[var], errors='coerce')
+
+                        # Fit Model 1 (without urban type)
+                        if var != urban_type:
+                            model1_formula = f"{var} ~ 1"
+                            model1 = smf.ols(model1_formula, data=df).fit()
+                            reg_results.at[var, 'Model 1 Beta'] = model1.params['Intercept']
+                            reg_results.at[var, 'Model 1 P-Value'] = model1.pvalues['Intercept']
+                        else:
+                            reg_results.at[var, 'Model 1 Beta'] = None
+                            reg_results.at[var, 'Model 1 P-Value'] = None
+
+                        # Fit Model 2 (with urban type as a factor)
+                        if var != urban_type:
+                            model2_formula = f"{var} ~ C({urban_type})"
+                            model2 = smf.ols(model2_formula, data=df).fit()
+                            urban_type_categories = df[urban_type].unique()
+                            for category in urban_type_categories:
+                                cat_coef = f"C({urban_type})[T.{category}]"
+                                if cat_coef in model2.params:
+                                    reg_results.at[var, 'Model 2 Beta'] = model2.params[cat_coef]
+                                    reg_results.at[var, 'Model 2 P-Value'] = model2.pvalues[cat_coef]
+                                else:
+                                    reg_results.at[var, 'Model 2 Beta'] = None
+                                    reg_results.at[var, 'Model 2 P-Value'] = None
+                        else:
+                            # do not include type in Model 2 regression
+                            reg_results.at[var, 'Model 2 Beta'] = None
+                            reg_results.at[var, 'Model 2 P-Value'] = None
+
+                    return reg_results
+                '''
+        st.code(code, language='python')
+        st.markdown('[Statmodels](https://www.statsmodels.org/stable/api.html#api-reference)')
+
+        gpt_expl = """
+        **Remarks by chatGPT**
+        1. Significance of Urban Type
+        Effect on Model Fit: The changes in coefficients and p-values when including urban type suggest that the urban environment significantly influences the dependent variable. If coefficients change substantially, it implies that the impact of other variables depends on the urban type.
+        Interpretation of P-values: A p-value less than 0.05 typically indicates that the result is statistically significant. If you see significant p-values in Model 2 but not in Model 1, it suggests that the effect of that variable is conditional on the urban type.
+        2. Coefficient Changes
+        Magnitude and Direction: Changes in the magnitude and direction of coefficients between models indicate how each variable's influence varies across different urban types. For example, a positive coefficient in Model 1 turning negative in Model 2 for the same variable suggests a reversal of influence dependent on the urban type context.
+        Interpreting the Changes:
+        Income: If income has a high coefficient in both models but a lower p-value in Model 2, it might be more relevant in certain urban types.
+        Age: A large coefficient for age in Model 1 that decreases substantially in Model 2 could suggest that the effect of age is less uniform across different urban types.
+        Gender: A change from a moderate coefficient to a negative one might suggest gender effects vary significantly by urban type, potentially due to socio-economic or cultural differences.
+        3. Analyzing the Urban Type Effect
+        Urban Type as a Moderator: Think of urban type as a moderator in the relationship between your predictors (like income, age, etc.) and the outcome. The significant change in coefficients indicates that urban type modifies how other variables affect the outcome.
+        Category-specific Effects: If you have the coefficients for each category of urban type in Model 2, analyze them to see which urban type magnifies or diminishes the effect of other variables.
+        """
+        st.markdown("###")
+        st.markdown(gpt_expl)
 
 
 with tab5:

@@ -53,7 +53,7 @@ st.markdown("----")
 
 # content
 st.title("Data Paper #4")
-st.subheader("Change in density in HMA")
+st.subheader("Population Change in density classes in HMA")
 ingress = '''
 <p style="font-family:sans-serif; color:Black; font-size: 14px;">
 This data paper studies the growth of the Helsinki metropolitan area (HMA) in the zones designated by 
