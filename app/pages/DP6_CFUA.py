@@ -15,18 +15,9 @@ import io
 import plotly.express as px
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
-import pingouin as pg
 
 #ML
-from sklearn.impute import SimpleImputer
-from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import r2_score
+import pingouin as pg
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
 
@@ -1004,7 +995,7 @@ with tab4:
     
     st.subheader('Multi-regression study')
     cf_orig = None
-    with st.status('Fetching original data..',expanded=True) as status:
+    with st.status('Preparing data..',expanded=True) as status:
         
         @st.cache_data()
         def get_origs():
@@ -1023,17 +1014,33 @@ with tab4:
         cf_orig.rename(columns=col_mapping_dict, inplace=True)
         cf_orig.rename(columns=calc_mapping_dict, inplace=True)
         cf_orig.columns = cf_orig.columns.str.replace(r'\W+', '_').str.strip('_').str.replace(r'^(\d+)', r'_\1')
+        
+        st.markdown('Original data')
         st.data_editor(cf_orig, key='orig')
         st.text(len(cf_orig))
             
-        status.update(label="Original data ready", state="complete", expanded=False)
+        status.update(label="Data prepared!", state="complete", expanded=False)
         
-        #st.stop()
+        st.markdown('Filtered data for regression')
+        reg_data_holder = st.empty()
+        reg_len = st.empty()
+        code = '''
+                def ols_reg(df,cf_col='cf_footprint_ex_pm'):
+                    base_formula = f'{cf_col} ~ C(hh_inc_cap_dec) + C(househ_type) + C(Age) + C(Gender) + C(Education_level) + C(cntr)'
+                    ext_formula = f'{cf_col} ~ C(hh_inc_cap_dec) + C(househ_type) + C(Age) + C(Gender) + C(Education_level) + C(cntr) + C(gfa_class) + C(far_class) + C(consumer_urbanism_sdi_class) + C(time_spending_sdi_class)'
+                    base_model = smf.ols(formula=base_formula, data=df)
+                    base_results = base_model.fit()
+                    ext_model = smf.ols(formula=ext_formula, data=df)
+                    ext_results = ext_model.fit()
+                    return base_results, ext_results
+                '''
+        st.code(code, language='python')
+        st.markdown('[Statmodels](https://www.statsmodels.org/stable/api.html#api-reference)')
     
     # -------- regression --------
     if cf_orig is not None:
         @st.cache_data()
-        def join(cf_orig,cfua_reg):
+        def join(cf_orig,cfua_reg,urban_cols):
             cf_orig['lat'] = cf_orig['lat'].str.replace(',', '.').astype(float)
             cf_orig['lon'] = cf_orig['lon'].str.replace(',', '.').astype(float)
             gdf_points = gpd.GeoDataFrame(
@@ -1045,171 +1052,103 @@ with tab4:
                 crs='EPSG:4326'
             )
             cf_orig_filtered_gdf = gpd.sjoin(gdf_points, gdf_polygons, op='within', how='inner')
-            columns_to_keep = cf_orig.columns.tolist() + ['urban_type']
+            columns_to_keep = cf_orig.columns.tolist() + ['urban_type'] + urban_cols
             cf_orig_out = cf_orig_filtered_gdf[columns_to_keep]
-            return cf_orig_out
+            return cf_orig_out.reset_index()
         
-        cf_filtered = join(cf_orig,cfua_reg)
-    
-    
-    def analyze_urban_type_impact(df, urban_type, indep_vars):
-        # DataFrame for results
-        reg_results = pd.DataFrame(index=indep_vars,
-                                columns=['Model 1 Beta', 'Model 1 P-Value', 
-                                            'Model 2 Beta', 'Model 2 P-Value'])
-
-        # Iterate through independent variables
-        for var in indep_vars:
-            # Check if the variable is numeric
-            if pd.api.types.is_numeric_dtype(df[var]):
-                df[var] = pd.to_numeric(df[var], errors='coerce')
-            elif pd.api.types.is_string_dtype(df[var]):
-                # Convert string to category if it's not already
-                df[var] = pd.Categorical(df[var])
-                # Create dummies and update the DataFrame
-                dummies = pd.get_dummies(df[var], prefix=var, drop_first=True)
-                df = pd.concat([df, dummies], axis=1)
-                df.drop(var, axis=1, inplace=True)  # Optionally drop the original column
-                
-            #df[var] = pd.to_numeric(df[var], errors='coerce')  # Convert to numeric
+        urban_cols = ['gfa_class','far_class','consumer_urbanism_sdi_class','time_spending_sdi_class']
+        cf_filtered = join(cf_orig,cfua_reg,urban_cols=urban_cols)
+        #preprocess..
+        def preprocess_df(df):
+            #some binning..
+            agebins = [0, 30, 60, 100]
+            agelabels = ['Young', 'Middle-aged', 'Senior']
+            df['Age'] = pd.cut(df['Age'], bins=agebins, labels=agelabels, include_lowest=True)
+            incbins = [0, 6, 9, 12]
+            inclabels = ['poor', 'middle', 'afluent']
+            df['hh_inc_cap_dec'] = pd.cut(df['hh_inc_cap_dec'], bins=incbins, labels=inclabels, include_lowest=True)
             
-            # Fit Model 1 (without urban type)
-            model1 = smf.ols(f"{var} ~ 1", data=df).fit()
-            reg_results.at[var, 'Model 1 Beta'] = model1.params['Intercept']
-            reg_results.at[var, 'Model 1 P-Value'] = model1.pvalues['Intercept']
-            
-            # Fit Model 2 (with urban type as a factor)
-            model2 = smf.ols(f"{var} ~ 1 + C({urban_type})", data=df).fit()
-            for category in df[urban_type].unique():
-                cat_coef = f"C({urban_type})[T.{category}]"
-                if cat_coef in model2.params:
-                    reg_results.at[var, f'Model 2 Beta ({category})'] = model2.params[cat_coef]
-                    reg_results.at[var, f'Model 2 P-Value ({category})'] = model2.pvalues[cat_coef]
-
-        return reg_results.drop(columns=['Model 2 Beta','Model 2 P-Value'])
-
-    
-    def plot_regression_results(df):
-        df = df.copy().reset_index()
+            columns = df.columns
+            for col in columns:
+                if df[col].dtype == 'object':
+                    try:
+                        df[col] = df[col].str.replace(',', '.').astype(float)
+                    except ValueError:
+                        continue
+                df[col] = df[col].replace([np.inf, -np.inf], np.nan)
+                if pd.api.types.is_numeric_dtype(df[col]):
+                    median = df[col].median(skipna=True)
+                    df[col].fillna(median, inplace=True)
+            for col in columns[1:]: #all but first col..
+                df[col] = pd.Categorical(df[col])
+            return df
         
-        # Melting the DataFrame to include P-Values and Beta values
-        beta_columns = [col for col in df.columns if 'Beta' in col]
-        p_value_columns = [col for col in df.columns if 'P-Value' in col]
-
-        # Create a combined DataFrame for beta values and p-values
-        beta_df = df.melt(id_vars='index', value_vars=beta_columns, var_name='Model', value_name='Beta Value')
-        p_value_df = df.melt(id_vars='index', value_vars=p_value_columns, var_name='Model', value_name='P-Value')
-        beta_df['Model'] = beta_df['Model'].str.replace(' Beta', '')
-        p_value_df['Model'] = p_value_df['Model'].str.replace(' P-Value', '')
-
-        # Merge the beta values and p-values into a single DataFrame
-        merged_df = pd.merge(beta_df, p_value_df, on=['index', 'Model'])
-        merged_df['Opacity'] = merged_df['P-Value'].apply(lambda x: 1 if x < 0.05 else (0.5 if x < 0.1 else 0.1))
-
-
-        # Initialize figure
-        fig = go.Figure()
-
-        # Add bars for each model
-        for model, group in merged_df.groupby('Model'):
-            fig.add_trace(go.Bar(
-                x=group['index'], 
-                y=group['Beta Value'], 
-                name=model, 
-                marker=dict(opacity=group['Opacity']), # Apply opacity individually
-                hoverinfo='y+name',
-                text=group['P-Value'], # Display p-values on hover
-                hovertemplate='%{text:.3f}', # Format hover text
-            ))
-
-        # Update layout
-        fig.update_layout(
-            title='Beta Values',
-            xaxis_title='Independent Variables',
-            yaxis_title='Beta Coefficients',
-            barmode='group',
-            yaxis=dict(range=[-10, 10]),
-            legend_title='Model Details'
-        )
-
-        return fig
-
-            
-    if cf_filtered is not None:
+        myindepvars = ['hh_inc_cap_dec','househ_type','Age','Gender','Education_level','cntr'] + urban_cols
         orig_cols = cf_orig.columns.tolist()
-        default_cols = ['cu_cf_footprint_ex_pm'] #[c for c in orig_cols if c.startswith('cu')]
-        
-        #convert country codes to nums for reg calc
-        cf_filtered['cntr'].replace(['FI','SE','DK','NO','IS'],
-                        [1,2,3,4,5], inplace=True)
-        
+        default_inx = orig_cols.index('cf_footprint_ex_pm') #[c for c in orig_cols if c.startswith('cu')]
         c1,c2 = st.columns(2)
-        cf_regcols = c1.multiselect('Dependent vars (domains)',options=orig_cols,default=default_cols)
-        indeps_defs = ['hh_inc_cap_dec','Age','Gender','Education_level','cntr']
-        indeps = c2.multiselect('Indepependent vars',options=orig_cols,default=indeps_defs)
+        cf_col = c1.selectbox('Domain to study',options=orig_cols,index=default_inx)
+        regdata = cf_filtered[[cf_col] + myindepvars]
+        processed_df = preprocess_df(regdata)
         
-        if len(cf_regcols) > 0:
-            use_cols = cf_regcols + indeps + ['urban_type']
-            reg_result = analyze_urban_type_impact(cf_filtered[use_cols],urban_type="urban_type",indep_vars=indeps)
-            st.data_editor(reg_result,use_container_width=True)
-            st.caption("Model 1: withOUT urban type / Model 2: with urban type")
-            reg_fig = plot_regression_results(reg_result)
-            st.plotly_chart(reg_fig, use_container_width=True, config = {'displayModeBar': False} )
-
-            #pandasAI
-            from pandasai.llm.openai import OpenAI
-            from pandasai import SmartDataframe
-            llm = OpenAI(api_token=st.secrets['openai']['secret'])
-            sdf = SmartDataframe(reg_result,config={"llm":llm})
-            prompt = st.text_input('PandasAi prompt..',value="Which column including 'Beta' in its name has biggest difference on column 'Model 1 Beta' ?")
-            if st.button('Ask'):
-                try:
-                    respo = sdf.chat(prompt)
-                    st.success(respo)
-                except:
-                    st.warning('Analysis failed')
-                    
+        with reg_data_holder:
+            st.data_editor(processed_df)
+        with reg_len:
+            st.text(len(processed_df))
+        
+        if st.button('Compute regressions'):
             
+            def ols_reg(df,cf_col='cf_footprint_ex_pm'):
+                base_formula = f'{cf_col} ~ C(hh_inc_cap_dec) + C(househ_type) + C(Age) + C(Gender) + C(Education_level) + C(cntr)'
+                ext_formula = f'{cf_col} ~ C(hh_inc_cap_dec) + C(househ_type) + C(Age) + C(Gender) + C(Education_level) + C(cntr) + C(gfa_class) + C(far_class) + C(consumer_urbanism_sdi_class) + C(time_spending_sdi_class)'
+                base_model = smf.ols(formula=base_formula, data=df)
+                base_results = base_model.fit()
+                ext_model = smf.ols(formula=ext_formula, data=df)
+                ext_results = ext_model.fit()
+                return base_results, ext_results
+            
+            base_results, ext_results = ols_reg(df=processed_df,cf_col=cf_col)
+            s1,s2 = st.columns(2)
+            s1.text(base_results.summary())
+            s2.text(ext_results.summary())
+            
+            reg_results = pd.DataFrame({
+                            'Base β': base_results.params,
+                            'Base p': base_results.pvalues,
+                            'Ext β': base_results.params,
+                            'Ext p': base_results.pvalues,
+                        })
+            st.data_editor(reg_results,use_container_width=True)
+            
+            def reg_plot(reg_results):
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=reg_results['Base β'], 
+                    y=-np.log10(reg_results['Base p']),
+                    mode='markers',
+                    name='Base Model',
+                    marker=dict(color='blue', size=10),
+                    text=reg_results.index
+                ))
 
-    with st.expander('The method', expanded=False):
-        code = '''
-                def analyze_urban_type_impact(df, urban_type, indep_vars):
-                    # DataFrame for results
-                    reg_results = pd.DataFrame(index=indep_vars,
-                                            columns=['Model 1 Beta', 'Model 1 P-Value', 
-                                                        'Model 2 Beta', 'Model 2 P-Value'])
-
-                    # Iterate through independent variables
-                    for var in indep_vars:
-                        
-                        # Check if the variable is numeric
-                        if pd.api.types.is_numeric_dtype(df[var]):
-                            df[var] = pd.to_numeric(df[var], errors='coerce')
-                        elif pd.api.types.is_string_dtype(df[var]):
-                            # Convert string to category if it's not already
-                            df[var] = pd.Categorical(df[var])
-                            # Create dummies and update the DataFrame
-                            dummies = pd.get_dummies(df[var], prefix=var, drop_first=True)
-                            df = pd.concat([df, dummies], axis=1)
-                            df.drop(var, axis=1, inplace=True)  # Optionally drop the original column
-                        
-                        # Fit Model 1 (without urban type)
-                        model1 = smf.ols(f"{var} ~ 1", data=df).fit()
-                        reg_results.at[var, 'Model 1 Beta'] = model1.params['Intercept']
-                        reg_results.at[var, 'Model 1 P-Value'] = model1.pvalues['Intercept']
-                        
-                        # Fit Model 2 (with urban type as a factor)
-                        model2 = smf.ols(f"{var} ~ 1 + C({urban_type})", data=df).fit()
-                        for category in df[urban_type].unique():
-                            cat_coef = f"C({urban_type})[T.{category}]"
-                            if cat_coef in model2.params:
-                                reg_results.at[var, f'Model 2 Beta ({category})'] = model2.params[cat_coef]
-                                reg_results.at[var, f'Model 2 P-Value ({category})'] = model2.pvalues[cat_coef]
-
-                    return reg_results.drop(columns=['Model 2 Beta','Model 2 P-Value'])
-                '''
-        st.code(code, language='python')
-        st.markdown('[Statmodels](https://www.statsmodels.org/stable/api.html#api-reference)')
+                fig.add_trace(go.Scatter(
+                    x=reg_results['Ext β'], 
+                    y=-np.log10(reg_results['Ext p']),
+                    mode='markers',
+                    name='Extended Model',
+                    marker=dict(color='red', size=10),
+                    text=reg_results.index
+                ))
+                fig.update_layout(
+                    title='Comparison of Base and Extended Model Coefficients and p-values',
+                    xaxis_title='Coefficients (β)',
+                    yaxis_title='-log10(p-value)',
+                    legend_title='Model'
+                )
+                return fig
+            
+            st.plotly_chart(reg_plot(reg_results), use_container_width=True, config = {'displayModeBar': False} )
+        
 
 
 with tab5:
