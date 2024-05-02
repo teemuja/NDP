@@ -1156,7 +1156,20 @@ with tab4:
             reg_fig = plot_regression_results(reg_result)
             st.plotly_chart(reg_fig, use_container_width=True, config = {'displayModeBar': False} )
 
-            #st.table(reg_result)
+            #pandasAI
+            from pandasai.llm.openai import OpenAI
+            from pandasai import SmartDataframe
+            llm = OpenAI(api_token=st.secrets['openai']['secret'])
+            sdf = SmartDataframe(reg_result,config={"llm":llm})
+            prompt = st.text_input('PandasAi prompt..',value="Which column including 'Beta' in its name has biggest difference on column 'Model 1 Beta' when row 'Age' in index is excluded?")
+            if st.button('Ask'):
+                try:
+                    respo = sdf.chat(prompt)
+                    st.success(respo)
+                except:
+                    st.warning('Analysis failed')
+                    
+            
 
     with st.expander('The method', expanded=False):
         code = '''
@@ -1197,38 +1210,6 @@ with tab4:
                 '''
         st.code(code, language='python')
         st.markdown('[Statmodels](https://www.statsmodels.org/stable/api.html#api-reference)')
-
-        gpt_expl = """
-        **Remarks by chatGPT**  
-          
-        Model 1 Results:  
-        Beta: 5.7963  
-        P-Value: 0.0000  
-        This suggests a significant effect in the base model without considering urban types.  
-          
-        Model 2 Results for Different Urban Types:  
-          
-        Cerda-Gruen: (med_high_high_med = compact build.env with high consumer amenities)  
-        Beta: 3.7750  
-        P-Value: 0.0272  
-        The effect is significant and positive, indicating this urban type has a noticeable and statistically significant positive impact on hh_inc_cap_dec.  
-          
-        Duany-Olmsted:  
-        Beta: 4.7333  
-        P-Value: 0.0519  
-        Although this is very close to the conventional significance threshold (0.05), it still suggests a potentially significant positive impact, slightly above the threshold.  
-          
-        Frank-Sonck and Frank-Olmsted:  
-        Both have significant beta values, with Frank-Olmsted having a Beta of 2.7000 and a P-Value of 0.1392, which is not statistically significant, but still notable.  
-        Frank-Sonck has a smaller beta and a similar P-Value.  
-          
-        Cerda-Garnier:  
-        Beta: 2.8000  
-        P-Value: 0.1038  
-        This shows a positive effect, though not statistically significant, it's still considerable.  
-        """
-        st.markdown("###")
-        st.markdown(gpt_expl)
 
 
 with tab5:
