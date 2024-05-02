@@ -1050,159 +1050,184 @@ with tab4:
             return cf_orig_out
         
         cf_filtered = join(cf_orig,cfua_reg)
-        
-    def analyze_regs_v1(df):
-        # df for results
-        reg_results = pd.DataFrame(columns=['Domains', 'Model 1 Beta', 'Model 1 P-Value', 'Model 2 Beta', 'Model 2 P-Value'])
-
-        # define cf domains
-        domains = df.columns.drop('urban_type')  # remove urban_type
-        
-        # loop the domains
-        for domain in domains:
-            df[domain] = pd.to_numeric(df[domain], errors='coerce')
-            try:
-                model1 = smf.ols(f"{domain} ~ 1", data=df).fit()  #without urban_type..
-                print(f"Model 1 fitted successfully for {domain}")
-            except Exception as e:
-                print(f"Failed to fit Model 1 for {domain}: {e}")
-            try:
-                model2 = smf.ols(f"{domain} ~ C(urban_type)", data=df).fit() #with urban_type
-                print(f"Model 2 fitted successfully for {domain}")
-            except Exception as e:
-                print(f"Failed to fit Model 2 for {domain}: {e}")
-            
-            # collect results
-            model1_beta = model1.params['Intercept']
-            model1_p = model1.pvalues['Intercept']
-            model2_beta = model2.params.drop('Intercept')  # only urban_type coefs..
-            model2_p = model2.pvalues.drop('Intercept')  # ..and p-valus..
-            
-            # result df for the domain
-            for urban_type in model2_beta.index:
-                reg_results = reg_results.append({
-                    'Domains': domain,
-                    'Model 1 Beta': model1_beta,
-                    'Model 1 P-Value': model1_p,
-                    'Model 2 Beta': model2_beta[urban_type],
-                    'Model 2 P-Value': model2_p[urban_type]
-                }, ignore_index=True)
-        #group..
-        grouped_result = reg_results.groupby(['Domains']).mean()
-        return grouped_result
     
-    def analyze_regs_v2(df, urban_type, indep_vars):
-        
+    
+    def analyze_urban_type_impact(df, urban_type, indep_vars):
+        # DataFrame for results
         reg_results = pd.DataFrame(index=indep_vars,
-                                columns=['Model 1 Beta', 'Model 1 P-Value', 'Model 2 Beta', 'Model 2 P-Value'])
+                                columns=['Model 1 Beta', 'Model 1 P-Value', 
+                                            'Model 2 Beta', 'Model 2 P-Value'])
 
+        # Iterate through independent variables
         for var in indep_vars:
-            # Convert to numeric if not the urban_type column
-            if var != urban_type:
+            # Check if the variable is numeric
+            if pd.api.types.is_numeric_dtype(df[var]):
                 df[var] = pd.to_numeric(df[var], errors='coerce')
-
+            elif pd.api.types.is_string_dtype(df[var]):
+                # Convert string to category if it's not already
+                df[var] = pd.Categorical(df[var])
+                # Create dummies and update the DataFrame
+                dummies = pd.get_dummies(df[var], prefix=var, drop_first=True)
+                df = pd.concat([df, dummies], axis=1)
+                df.drop(var, axis=1, inplace=True)  # Optionally drop the original column
+                
+            #df[var] = pd.to_numeric(df[var], errors='coerce')  # Convert to numeric
+            
             # Fit Model 1 (without urban type)
-            if var != urban_type:
-                model1_formula = f"{var} ~ 1"
-                model1 = smf.ols(model1_formula, data=df).fit()
-                reg_results.at[var, 'Model 1 Beta'] = model1.params['Intercept']
-                reg_results.at[var, 'Model 1 P-Value'] = model1.pvalues['Intercept']
-            else:
-                reg_results.at[var, 'Model 1 Beta'] = None
-                reg_results.at[var, 'Model 1 P-Value'] = None
-
+            model1 = smf.ols(f"{var} ~ 1", data=df).fit()
+            reg_results.at[var, 'Model 1 Beta'] = model1.params['Intercept']
+            reg_results.at[var, 'Model 1 P-Value'] = model1.pvalues['Intercept']
+            
             # Fit Model 2 (with urban type as a factor)
-            if var != urban_type:
-                model2_formula = f"{var} ~ C({urban_type})"
-                model2 = smf.ols(model2_formula, data=df).fit()
-                urban_type_categories = df[urban_type].unique()
-                for category in urban_type_categories:
-                    cat_coef = f"C({urban_type})[T.{category}]"
-                    if cat_coef in model2.params:
-                        reg_results.at[var, 'Model 2 Beta'] = model2.params[cat_coef]
-                        reg_results.at[var, 'Model 2 P-Value'] = model2.pvalues[cat_coef]
-                    else:
-                        reg_results.at[var, 'Model 2 Beta'] = None
-                        reg_results.at[var, 'Model 2 P-Value'] = None
-            else:
-                # do not include type in Model 2 regression
-                reg_results.at[var, 'Model 2 Beta'] = None
-                reg_results.at[var, 'Model 2 P-Value'] = None
+            model2 = smf.ols(f"{var} ~ 1 + C({urban_type})", data=df).fit()
+            for category in df[urban_type].unique():
+                cat_coef = f"C({urban_type})[T.{category}]"
+                if cat_coef in model2.params:
+                    reg_results.at[var, f'Model 2 Beta ({category})'] = model2.params[cat_coef]
+                    reg_results.at[var, f'Model 2 P-Value ({category})'] = model2.pvalues[cat_coef]
 
-        return reg_results
+        return reg_results.drop(columns=['Model 2 Beta','Model 2 P-Value'])
+
+    
+    def plot_regression_results(df):
+        df = df.copy().reset_index()
+        
+        # Melting the DataFrame to include P-Values and Beta values
+        beta_columns = [col for col in df.columns if 'Beta' in col]
+        p_value_columns = [col for col in df.columns if 'P-Value' in col]
+
+        # Create a combined DataFrame for beta values and p-values
+        beta_df = df.melt(id_vars='index', value_vars=beta_columns, var_name='Model', value_name='Beta Value')
+        p_value_df = df.melt(id_vars='index', value_vars=p_value_columns, var_name='Model', value_name='P-Value')
+        beta_df['Model'] = beta_df['Model'].str.replace(' Beta', '')
+        p_value_df['Model'] = p_value_df['Model'].str.replace(' P-Value', '')
+
+        # Merge the beta values and p-values into a single DataFrame
+        merged_df = pd.merge(beta_df, p_value_df, on=['index', 'Model'])
+        merged_df['Opacity'] = merged_df['P-Value'].apply(lambda x: 1 if x < 0.05 else (0.5 if x < 0.1 else 0.1))
+
+
+        # Initialize figure
+        fig = go.Figure()
+
+        # Add bars for each model
+        for model, group in merged_df.groupby('Model'):
+            fig.add_trace(go.Bar(
+                x=group['index'], 
+                y=group['Beta Value'], 
+                name=model, 
+                marker=dict(opacity=group['Opacity']), # Apply opacity individually
+                hoverinfo='y+name',
+                text=group['P-Value'], # Display p-values on hover
+                hovertemplate='%{text:.3f}', # Format hover text
+            ))
+
+        # Update layout
+        fig.update_layout(
+            title='Beta Values',
+            xaxis_title='Independent Variables',
+            yaxis_title='Beta Coefficients',
+            barmode='group',
+            yaxis=dict(range=[-10, 10]),
+            legend_title='Model Details'
+        )
+
+        return fig
+
             
     if cf_filtered is not None:
         orig_cols = cf_orig.columns.tolist()
         default_cols = [c for c in orig_cols if c.startswith('cu')]
+        default_cols.remove('cu_hh_inc')
+        default_cols.remove('cu_hh_inc_dec')
+        
+        #convert country codes to nums for reg calc
+        cf_filtered['cntr'].replace(['FI','SE','DK','NO','IS'],
+                        [1,2,3,4,5], inplace=True)
+        
         c1,c2 = st.columns(2)
         cf_regcols = c1.multiselect('Dependent vars (domains)',options=orig_cols,default=default_cols)
-        indeps_defs = ['hh_inc_cap_dec','Age','Gender','Education_level']
+        indeps_defs = ['hh_inc_cap_dec','Age','Gender','Education_level','cntr']
         indeps = c2.multiselect('Indepependent vars',options=orig_cols,default=indeps_defs)
         
         if len(cf_regcols) > 0:
             use_cols = cf_regcols + indeps + ['urban_type']
-            reg_result = analyze_regs_v2(cf_filtered[use_cols],urban_type="urban_type",indep_vars=indeps)
+            reg_result = analyze_urban_type_impact(cf_filtered[use_cols],urban_type="urban_type",indep_vars=indeps)
             st.data_editor(reg_result,use_container_width=True)
             st.caption("Model 1: withOUT urban type / Model 2: with urban type")
+            reg_fig = plot_regression_results(reg_result)
+            st.plotly_chart(reg_fig, use_container_width=True, config = {'displayModeBar': False} )
+
+            #st.table(reg_result)
 
     with st.expander('The method', expanded=False):
         code = '''
-                def analyze_regs(df, urban_type, indep_vars):
+                def analyze_urban_type_impact(df, urban_type, indep_vars):
+                    # DataFrame for results
                     reg_results = pd.DataFrame(index=indep_vars,
-                                            columns=['Model 1 Beta', 'Model 1 P-Value', 'Model 2 Beta', 'Model 2 P-Value'])
+                                            columns=['Model 1 Beta', 'Model 1 P-Value', 
+                                                        'Model 2 Beta', 'Model 2 P-Value'])
 
+                    # Iterate through independent variables
                     for var in indep_vars:
-                        # Convert to numeric if not the urban_type column
-                        if var != urban_type:
+                        
+                        # Check if the variable is numeric
+                        if pd.api.types.is_numeric_dtype(df[var]):
                             df[var] = pd.to_numeric(df[var], errors='coerce')
-
+                        elif pd.api.types.is_string_dtype(df[var]):
+                            # Convert string to category if it's not already
+                            df[var] = pd.Categorical(df[var])
+                            # Create dummies and update the DataFrame
+                            dummies = pd.get_dummies(df[var], prefix=var, drop_first=True)
+                            df = pd.concat([df, dummies], axis=1)
+                            df.drop(var, axis=1, inplace=True)  # Optionally drop the original column
+                        
                         # Fit Model 1 (without urban type)
-                        if var != urban_type:
-                            model1_formula = f"{var} ~ 1"
-                            model1 = smf.ols(model1_formula, data=df).fit()
-                            reg_results.at[var, 'Model 1 Beta'] = model1.params['Intercept']
-                            reg_results.at[var, 'Model 1 P-Value'] = model1.pvalues['Intercept']
-                        else:
-                            reg_results.at[var, 'Model 1 Beta'] = None
-                            reg_results.at[var, 'Model 1 P-Value'] = None
-
+                        model1 = smf.ols(f"{var} ~ 1", data=df).fit()
+                        reg_results.at[var, 'Model 1 Beta'] = model1.params['Intercept']
+                        reg_results.at[var, 'Model 1 P-Value'] = model1.pvalues['Intercept']
+                        
                         # Fit Model 2 (with urban type as a factor)
-                        if var != urban_type:
-                            model2_formula = f"{var} ~ C({urban_type})"
-                            model2 = smf.ols(model2_formula, data=df).fit()
-                            urban_type_categories = df[urban_type].unique()
-                            for category in urban_type_categories:
-                                cat_coef = f"C({urban_type})[T.{category}]"
-                                if cat_coef in model2.params:
-                                    reg_results.at[var, 'Model 2 Beta'] = model2.params[cat_coef]
-                                    reg_results.at[var, 'Model 2 P-Value'] = model2.pvalues[cat_coef]
-                                else:
-                                    reg_results.at[var, 'Model 2 Beta'] = None
-                                    reg_results.at[var, 'Model 2 P-Value'] = None
-                        else:
-                            # do not include type in Model 2 regression
-                            reg_results.at[var, 'Model 2 Beta'] = None
-                            reg_results.at[var, 'Model 2 P-Value'] = None
+                        model2 = smf.ols(f"{var} ~ 1 + C({urban_type})", data=df).fit()
+                        for category in df[urban_type].unique():
+                            cat_coef = f"C({urban_type})[T.{category}]"
+                            if cat_coef in model2.params:
+                                reg_results.at[var, f'Model 2 Beta ({category})'] = model2.params[cat_coef]
+                                reg_results.at[var, f'Model 2 P-Value ({category})'] = model2.pvalues[cat_coef]
 
-                    return reg_results
+                    return reg_results.drop(columns=['Model 2 Beta','Model 2 P-Value'])
                 '''
         st.code(code, language='python')
         st.markdown('[Statmodels](https://www.statsmodels.org/stable/api.html#api-reference)')
 
         gpt_expl = """
-        **Remarks by chatGPT**
-        1. Significance of Urban Type
-        Effect on Model Fit: The changes in coefficients and p-values when including urban type suggest that the urban environment significantly influences the dependent variable. If coefficients change substantially, it implies that the impact of other variables depends on the urban type.
-        Interpretation of P-values: A p-value less than 0.05 typically indicates that the result is statistically significant. If you see significant p-values in Model 2 but not in Model 1, it suggests that the effect of that variable is conditional on the urban type.
-        2. Coefficient Changes
-        Magnitude and Direction: Changes in the magnitude and direction of coefficients between models indicate how each variable's influence varies across different urban types. For example, a positive coefficient in Model 1 turning negative in Model 2 for the same variable suggests a reversal of influence dependent on the urban type context.
-        Interpreting the Changes:
-        Income: If income has a high coefficient in both models but a lower p-value in Model 2, it might be more relevant in certain urban types.
-        Age: A large coefficient for age in Model 1 that decreases substantially in Model 2 could suggest that the effect of age is less uniform across different urban types.
-        Gender: A change from a moderate coefficient to a negative one might suggest gender effects vary significantly by urban type, potentially due to socio-economic or cultural differences.
-        3. Analyzing the Urban Type Effect
-        Urban Type as a Moderator: Think of urban type as a moderator in the relationship between your predictors (like income, age, etc.) and the outcome. The significant change in coefficients indicates that urban type modifies how other variables affect the outcome.
-        Category-specific Effects: If you have the coefficients for each category of urban type in Model 2, analyze them to see which urban type magnifies or diminishes the effect of other variables.
+        **Remarks by chatGPT**  
+          
+        Model 1 Results:  
+        Beta: 5.7963  
+        P-Value: 0.0000  
+        This suggests a significant effect in the base model without considering urban types.  
+          
+        Model 2 Results for Different Urban Types:  
+          
+        Cerda-Gruen: (med_high_high_med = compact build.env with high consumer amenities)  
+        Beta: 3.7750  
+        P-Value: 0.0272  
+        The effect is significant and positive, indicating this urban type has a noticeable and statistically significant positive impact on hh_inc_cap_dec.  
+          
+        Duany-Olmsted:  
+        Beta: 4.7333  
+        P-Value: 0.0519  
+        Although this is very close to the conventional significance threshold (0.05), it still suggests a potentially significant positive impact, slightly above the threshold.  
+          
+        Frank-Sonck and Frank-Olmsted:  
+        Both have significant beta values, with Frank-Olmsted having a Beta of 2.7000 and a P-Value of 0.1392, which is not statistically significant, but still notable.  
+        Frank-Sonck has a smaller beta and a similar P-Value.  
+          
+        Cerda-Garnier:  
+        Beta: 2.8000  
+        P-Value: 0.1038  
+        This shows a positive effect, though not statistically significant, it's still considerable.  
         """
         st.markdown("###")
         st.markdown(gpt_expl)
@@ -1211,7 +1236,7 @@ with tab4:
 with tab5:
     st.subheader('Land-use explorer')
     
-    def get_osm_landuse(add=None,polygon=None,radius=500,tags = {'natural':True,'landuse':True},exclude=['bay','water'],removeoverlaps=False):
+    def get_osm_landuse(polygon=None,add=None,radius=500,tags = {'natural':True,'landuse':True},exclude=['bay','water'],removeoverlaps=False):
         if add is not None:
             loc = geocoder.mapbox(add, key=mbtoken)
             latlon = (loc.lat,loc.lng)
@@ -1327,52 +1352,35 @@ with tab5:
         selected_rows = edited_df[edited_df.Select]
         return selected_rows.drop('Select', axis=1)
         
+        
     # -------------- UI ----------------
-    useadd = False #st.toggle('Use address')
     gdfs = None
     s1,s2 = st.columns(2)
-    if not useadd:
-        selected_urb_file3 = s1.selectbox('Select cluster to study',selectbox_names[:-1],key='classifier')
-        plot_type = s2.radio("Type",['land_use','land_cover'],horizontal=True)
+    
+    selected_urb_file3 = s1.selectbox('Select cluster to study',selectbox_names[:-1],key='classifier')
+    plot_type = s2.radio("Type",['land_use','land_cover'],horizontal=True)
+    
+    if selected_urb_file3 != "...":
+        file = f"{cfua_allas}CFUA/{selected_urb_file3}.csv"
+        cfua_data3 = allas_get(file)
+        cfua_data3 = cfua_data3.loc[:, ~cfua_data3.columns.str.startswith('Unnamed')]
+        cfua_data3 = cfua_data3.drop(columns=['consumer_urbanism','time_spending','worklife','miscellaneous'])
         
-        if selected_urb_file3 != "...":
-            file = f"{cfua_allas}CFUA/{selected_urb_file3}.csv"
-            r = requests.get(file, stream=True)
-            data = io.BytesIO(r.content)
-            cfua_data3 = pd.read_csv(data)
-            cfua_data3 = cfua_data.loc[:, ~cfua_data.columns.str.startswith('Unnamed')]
-            cfua_data3 = cfua_data3.drop(columns=['consumer_urbanism','time_spending','worklife','miscellaneous'])
-            
-            with st.expander('case areas',expanded=True):
-                selected = dataframe_with_selections(cfua_data3)
-            
-            st.cache_data()
-            def get_data_poly(poly,overlaptags = ['grass','meadow','forest']):
-                gdf_landuse = get_osm_landuse(polygon=poly,tags={'landuse':True},radius=500)
-                gdf_landuse = gdf_landuse.loc[~gdf_landuse['type'].isin(overlaptags)]
-                gdf_landcover = get_osm_landuse(polygon=poly,tags={'natural':True,'landuse':overlaptags},radius=500)
-                return gdf_landuse,gdf_landcover
-            
-            if len(selected) == 1:
-                poly = wkt.loads(selected['wkt'].iloc[0])
-                gdfs = get_data_poly(poly)
-            else:
-                st.warning('select one area')
-            
-        
-    else:
-        add = s1.text_input('Address')
-        plot_type = s2.radio("Type",['land_use','land_cover'],horizontal=True)
+        with st.expander('Case areas',expanded=True):
+            selected = dataframe_with_selections(cfua_data3)
         
         st.cache_data()
-        def get_data_add(add,overlaptags = ['grass','meadow','forest']):
-            gdf_landuse = get_osm_landuse(add=add,tags={'landuse':True},radius=500)
+        def get_data_poly(poly,overlaptags = ['grass','meadow','forest']):
+            gdf_landuse = get_osm_landuse(polygon=poly,tags={'landuse':True},radius=500)
             gdf_landuse = gdf_landuse.loc[~gdf_landuse['type'].isin(overlaptags)]
-            gdf_landcover = get_osm_landuse(add=add,tags={'natural':True,'landuse':overlaptags},radius=500)
+            gdf_landcover = get_osm_landuse(polygon=poly,tags={'natural':True,'landuse':overlaptags},radius=500)
             return gdf_landuse,gdf_landcover
         
-        if add:
-            gdfs = get_data_add(add)
+        if len(selected) == 1:
+            poly = wkt.loads(selected['wkt'].iloc[0])
+            gdfs = get_data_poly(poly)
+        else:
+            st.warning('Select area to study')
         
     if gdfs is not None:
         if plot_type == 'land_use':
