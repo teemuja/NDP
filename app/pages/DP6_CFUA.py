@@ -1004,7 +1004,7 @@ with tab4:
     
     st.subheader('Multi-regression study')
     cf_orig = None
-    with st.status('Feetching original data..',expanded=True) as status:
+    with st.status('Fetching original data..',expanded=True) as status:
         
         @st.cache_data()
         def get_origs():
@@ -1137,9 +1137,7 @@ with tab4:
             
     if cf_filtered is not None:
         orig_cols = cf_orig.columns.tolist()
-        default_cols = [c for c in orig_cols if c.startswith('cu')]
-        default_cols.remove('cu_hh_inc')
-        default_cols.remove('cu_hh_inc_dec')
+        default_cols = ['cu_cf_footprint_ex_pm'] #[c for c in orig_cols if c.startswith('cu')]
         
         #convert country codes to nums for reg calc
         cf_filtered['cntr'].replace(['FI','SE','DK','NO','IS'],
