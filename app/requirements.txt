@@ -10,5 +10,6 @@ momepy
 boto3
 pingouin
 scikit-learn
+pandasai
 geocoder
 owslib
