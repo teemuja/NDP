@@ -1161,7 +1161,7 @@ with tab4:
             from pandasai import SmartDataframe
             llm = OpenAI(api_token=st.secrets['openai']['secret'])
             sdf = SmartDataframe(reg_result,config={"llm":llm})
-            prompt = st.text_input('PandasAi prompt..',value="Which column including 'Beta' in its name has biggest difference on column 'Model 1 Beta' when row 'Age' in index is excluded?")
+            prompt = st.text_input('PandasAi prompt..',value="Which column including 'Beta' in its name has biggest difference on column 'Model 1 Beta' ?")
             if st.button('Ask'):
                 try:
                     respo = sdf.chat(prompt)
