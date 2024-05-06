@@ -1115,8 +1115,8 @@ with tab4:
             reg_results = pd.DataFrame({
                             'Base β': base_results.params,
                             'Base p': base_results.pvalues,
-                            'Ext β': base_results.params,
-                            'Ext p': base_results.pvalues,
+                            'Ext β': ext_results.params,
+                            'Ext p': ext_results.pvalues,
                         })
             st.data_editor(reg_results,use_container_width=True)
             
