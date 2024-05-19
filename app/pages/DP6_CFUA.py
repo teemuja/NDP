@@ -465,8 +465,8 @@ with tab3:
         per_capita = round(grouped[cols].sum().div(grouped.size(), axis=0),-1)
         return per_capita
     
-    def remove_outliers_and_normalize(df, cols, outlier='Percent'):
-            if outlier == 'IQR':
+    def remove_outliers_and_normalize(df, cols, norm='Percent'):
+            if norm == 'IQR':
                 for col in cols:
                     Q1 = df[col].quantile(0.25)
                     Q3 = df[col].quantile(0.75)
@@ -475,12 +475,17 @@ with tab3:
                     upper_bound = Q3 + 1.5 * IQR
                     df_out = df[(df[col] >= lower_bound) & (df[col] <= upper_bound)]
                     df_out[col] = np.log1p(df_out[col])
-            else:
+            elif norm == 'Percent':
                 for col in cols:
                     lower_bound = df[col].quantile(0.01)
-                    upper_bound = df[col].quantile(0.99)
+                    upper_bound = df[col].quantile(0.91)
                     df_out = df[(df[col] >= lower_bound) & (df[col] <= upper_bound)]
                     df_out[col] = np.log1p(df_out[col])
+            else:
+                for col in cols:
+                    lower_bound = df[col].quantile(0.05)
+                    upper_bound = df[col].quantile(0.95)
+                    df_out = df[(df[col] >= lower_bound) & (df[col] <= upper_bound)]
                     
             return df_out
     
@@ -492,9 +497,9 @@ with tab3:
         
         city_results = calculate_per_capita(cf_reg_all, 'city', reg_cols).reset_index()
         
-        norm = st.toggle('Normalize')
+        norm = st.toggle('Remove outliers')
         if norm:
-            city_results = remove_outliers_and_normalize(city_results, reg_cols)
+            city_results = remove_outliers_and_normalize(city_results, reg_cols, norm='none')
         else:
             city_results = city_results.copy()
         #the plot
@@ -510,7 +515,7 @@ with tab3:
     
     with st.expander('Normalized data'):
         method = st.radio('Method for outliers',['Percent','IQR'],horizontal=True)
-        cf_normalized = remove_outliers_and_normalize(cf_reg_all, reg_cols, outlier=method)
+        cf_normalized = remove_outliers_and_normalize(cf_reg_all, reg_cols, norm=method)
         
         st.data_editor(cf_normalized)
         hist_place = st.empty()
