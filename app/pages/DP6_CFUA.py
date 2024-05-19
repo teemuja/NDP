@@ -17,6 +17,7 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 
 #ML
+from scipy import stats
 import pingouin as pg
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
@@ -143,7 +144,14 @@ def spaces_csv_handler(file_name=None, folder_name="ndp", operation=None, data_f
     else:
         raise ValueError("Invalid operation or missing data for upload")
 
-
+#@st.cache_data()
+def allas_get(filepath):
+    r = requests.get(filepath, stream=True)
+    data = io.BytesIO(r.content)
+    cfua_data = pd.read_csv(data)
+    cfua_data = cfua_data.loc[:, ~cfua_data.columns.str.startswith('Unnamed')]
+    return cfua_data
+    
 
 
 auth = check_password()
@@ -232,7 +240,7 @@ def plot_sample_clusters(gdf_in,cf_col="Total footprint"):
 
 # --------------------- THE CONTENT ------------------------
 
-tab1,tab2,tab3,tab4,tab5 = st.tabs(['Clusterizer','Urban data','Sample analyzer','Regressor','Land-use explorer'])
+tab1,tab2,tab3 = st.tabs(['Clusterizer','Urban data','Regressor'])
 
 with tab1:
     @st.cache_data()
@@ -429,688 +437,112 @@ with tab2:
 
 
 with tab3:
-    #csv_list = spaces_csv_handler(operation="list",folder_name="ndp/cfua")
+    reg_file = f"{cfua_allas}REG/cf_reg_ready.csv"
+    cf_reg_raw = allas_get(reg_file)
     
-    #allas con
-    session2 = boto3.session.Session()
-    client2 = session2.client('s3',
-                            endpoint_url='https://a3s.fi',
-                            aws_access_key_id=allas_key, 
-                            aws_secret_access_key=allas_secret
-                            )
-    objects = client2.list_objects_v2(Bucket='CFUA', Prefix='CFUA')
-    csv_files = []
-    # Iterate over each object in the specified folder
-    for obj in objects.get('Contents', []):
-        file_name = obj['Key']
-        if file_name.endswith('.csv'):
-            csv_files.append(file_name)
-    #get names..
-    names = []
-    for file_name in csv_files:
-        file_name_with_extension = file_name.split('/')[-1]
-        name = file_name_with_extension.split('.')[0]
-        names.append(name)
-        
-    #filtered_names = [name for name in names if re.search("Pmin", name)]
-    selectbox_names = names.copy()
-    selectbox_names.insert(0,"...")
-    selectbox_names.append("All_samples")
-    selected_urb_file = st.selectbox('Select sample file to analyze',selectbox_names)
-
-    #map plotter 2
-    def plot_sample_areas(df,cf_col="Total footprint"):
-        #get gdf
-        df['geometry'] = df.wkt.apply(wkt.loads)
-        case_data = gpd.GeoDataFrame(df,geometry='geometry')
-            
-        lat = case_data.unary_union.centroid.y
-        lon = case_data.unary_union.centroid.x
-        #
-        # Define fixed labels and colors
-        labels_colors = {
-            'Bottom': 'rgba(144, 238, 144, 0.6)',
-            'Low': 'rgba(64,224,208, 0.8)',
-            'High': 'rgba(254, 170, 70, 1)',
-            'Top': 'rgba(253, 100, 80, 1)'
-        }
-
-        # Get unique sorted values
-        sorted_unique_values = sorted(case_data[cf_col].unique())
-
-        # Determine number of bins
-        num_bins = min(len(sorted_unique_values), 4)  # Limit the number of bins to 4
-
-        # Generate bin edges ensuring they are unique and cover the range of values
-        bin_edges = np.percentile(case_data[cf_col], np.linspace(0, 100, num_bins + 1))
-
-        # Ensure unique bin edges
-        bin_edges = np.unique(bin_edges)
-
-        # Adjust the number of labels based on the number of bin edges
-        num_labels = len(bin_edges) - 1
-        labels = list(labels_colors.keys())[:num_labels]
-
-        # Assign quartile class
-        case_data['cf_class'] = pd.cut(case_data[cf_col], bins=bin_edges, labels=labels, include_lowest=True)
-        #ensure all classes exist
-        for label in labels_colors.keys():
-            # Check if the label is already present
-            if label not in case_data['cf_class'].tolist():
-                # Create a dummy row DataFrame with the missing category
-                dummy_row_df = pd.DataFrame([{cf_col: None, 'cf_class': label}])
-                # Use pd.concat to append the dummy row DataFrame
-                case_data = pd.concat([case_data, dummy_row_df], ignore_index=True)
-
-        fig_map = px.choropleth_mapbox(case_data,
-                                geojson=case_data.geometry,
-                                locations=case_data.index,
-                                title="Sample areas of on map",
-                                color='cf_class',
-                                hover_name='clusterID',
-                                hover_data = ['area'],
-                                color_discrete_map=labels_colors,
-                                category_orders={"cf_class":['Top','High','Low','Bottom']},
-                                labels={'cf_class': f'{cf_col} level'},
-                                center={"lat": lat, "lon": lon},
-                                mapbox_style=my_style,
-                                zoom=11,
-                                opacity=0.5,
-                                width=1200,
-                                height=700
-                                )
-
-        fig_map.update_layout(margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=700,
-                                    legend=dict(
-                                        yanchor="top",
-                                        y=0.97,
-                                        xanchor="left",
-                                        x=0.02
-                                    )
-                                    )
-        return fig_map
-
-    #scat plotter
-    def carbon_vs_pois_scatter(case_data_in,
-                            hovername=None,
-                            cf_col=None,
-                            x_col=None,
-                            y_col=None,
-                            z_col=None,
-                            scale_axis=True,
-                            trendline=False,
-                            bins=None,
-                            title=None):
-
-        #make a copy
-        case_data = case_data_in.copy()
-
-        # Get unique sorted values
-        sorted_unique_values = sorted(case_data[cf_col].unique())
-
-        # Determine number of bins
-        num_bins = min(len(sorted_unique_values), 4)  # Limit the number of bins to 4
-
-        # Define fixed labels and colors
-        labels_colors = {
-            'Bottom': 'rgba(35,140,35, 1)',
-            'Low': 'rgba(64,224,208, 0.8)',
-            'High': 'rgba(254, 170, 70, 0.8)',
-            'Top': 'rgba(255, 87, 51, 1)'
-        }
-        
-        if bins is None:
-            # Calculate bins dynamically if not provided
-            sorted_unique_values = np.unique(case_data[cf_col].dropna())
-            num_bins = min(len(sorted_unique_values), 4)
-            bin_edges = np.percentile(sorted_unique_values, np.linspace(0, 100, num_bins + 1))
-        else:
-            # Use custom bins and ensure they are unique after calculation
-            bin_edges = np.unique(np.percentile(case_data[cf_col].dropna(), bins))
-
-        # Making sure bin edges are unique and handling edge cases
-        bin_edges = np.unique(bin_edges)
-        if len(bin_edges) <= 1:  # Handling case where all values are the same or too close
-            bin_edges = np.array([bin_edges[0], bin_edges[0] + 1])  # Creating a dummy bin edge to avoid errors
-
-        num_labels = len(bin_edges) - 1
-        labels = list(labels_colors.keys())[:num_labels]
-        case_data['cf_class'] = pd.cut(case_data[cf_col], bins=bin_edges, labels=labels, include_lowest=True)
-
-        #ensure all classes exist
-        for label in labels_colors.keys():
-            # Check if the label is already present
-            if label not in case_data['cf_class'].tolist():
-                # Create a dummy row DataFrame with the missing category
-                dummy_row_df = pd.DataFrame([{cf_col: None, 'cf_class': label, x_col: None, y_col: None, z_col: 0}])
-                # Use pd.concat to append the dummy row DataFrame
-                case_data = pd.concat([case_data, dummy_row_df], ignore_index=True)
-
-        # Filtering out nan values and ensuring only valid labels are included
-        unique_labels = [label for label in case_data['cf_class'].dropna().unique() if label in labels_colors]
-
-        # Dynamically create colormap for quartile classes used in cf_class
-        quartile_colormap = {label: labels_colors[label] for label in unique_labels}
-
-        #cat orders
-        desired_order = ["Top", "High", "Low", "Bottom"]
-        present_categories = case_data['cf_class'].tolist()
-        adjusted_category_orders = [cat for cat in desired_order if cat in present_categories]
-
-        # Create a new column for custom hover text
-        case_data['custom_hover_text'] = case_data.apply(lambda row: f"footprint {row[cf_col]}", axis=1)
-
-        if scale_axis:
-            buff = 1.1
-            # Calculate 99th quantile and max values for x and y columns
-            x_quantile = case_data[x_col].quantile(0.95)
-            y_quantile = case_data[y_col].quantile(0.95)
-            x_max = case_data[x_col].max()
-            y_max = case_data[y_col].max()
-
-            # Determine if the difference between max and 99th quantile is large for x and y
-            x_large_diff = (x_max - x_quantile) > (x_quantile * 0.3) # threshold n% of the 95th quantile
-            y_large_diff = (y_max - y_quantile) > (y_quantile * 0.3)
-
-            # Set axis range based on the above logic
-            x_range = [0, (x_quantile if x_large_diff else x_max) * buff]
-            y_range = [0, (y_quantile if y_large_diff else y_max) * buff]
-        else:
-            x_range = None
-            y_range = None
-
-        #scale marker sizes
-        min_size=50
-        max_size=500
-        # Initialize the scaler with the desired min and max sizes
-        scaler = MinMaxScaler(feature_range=(min_size, max_size))
-        # Fit the scaler to your data and transform the z_col to the scaled sizes
-        # Reshape(-1, 1) is needed because the data needs to be in a 2D array format
-        case_data['adjusted_size'] = scaler.fit_transform(case_data[z_col].values.reshape(-1, 1)).flatten()
-        
-        #hovers
-        hover_data = {column: True for column in [z_col,'cf_class','Income Level decile']}
-        # Now, set all other columns to False
-        for column in case_data.columns:
-            if column not in hover_data:
-                hover_data[column] = False
-
-        #trendline
-        if trendline:
-            trend_line="ols"
-        else:
-            trend_line=None
-
-        # Create the scatter plot
-        fig = px.scatter(case_data, title=title,
-                            x=x_col, y=y_col, color='cf_class', size='adjusted_size',
-                            log_y=False,
-                            hover_name=hovername,
-                            hover_data = hover_data,
-                            labels={'cf_class': f'{cf_col} level'},
-                            category_orders={"cf_class": adjusted_category_orders},
-                            color_discrete_map=quartile_colormap,
-                            trendline=trend_line,
-                            range_x=x_range,
-                            range_y=y_range
-                            )
-            
-        fig.update_layout(
-            margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=700,
-            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
-        )
-
-        return fig
-
-
+    import re
+    import string
+    #clean col names from white spaces etc..
+    def clean_col_names(df):
+        df.columns = [
+            ''.join(filter(lambda x: x in string.printable, re.sub(r'[^\w\s]', '', re.sub(r'\s+', '_', col.strip())))).lower()
+            for col in df.columns
+        ]
+        return df
     
-    #area calc
-    def calc_area(df_in):
-        df = df_in.copy()
-        df['geometry'] = df.wkt.apply(wkt.loads)
-        gdf = gpd.GeoDataFrame(df,geometry='geometry',crs=4326)
-        #utm..
-        utm = gdf.estimate_utm_crs()
-        df_in['area'] = round(gdf.to_crs(utm).area,-3)
-        orig_cols = list(df_in.columns)
-        orig_cols.insert(2, orig_cols.pop(orig_cols.index('area')))
-        df_out = df_in[orig_cols]
-        return df_out
+    cf_reg_all = clean_col_names(cf_reg_raw)
     
-    # Shannon index for a row
-    def shannon_index(row):
-        # Filter out zero values to avoid log(0)
-        filtered_row = row[row > 0]
-        total = filtered_row.sum()
-        proportions = filtered_row / total
-        shannon_index = -np.sum(proportions * np.log(proportions))
-        return shannon_index
+    def bin_age(df):
+        bins = [0, 20, 40, 60, float('inf')]
+        labels = ['young', 'adult', 'senior', 'seasoned']
+        df['age_class'] = pd.cut(df['age'], bins=bins, labels=labels, right=False)
+        return df
     
-    @st.cache_data(max_entries=1)
-    def get_sample(selected_urb_file,filtered_names):
-        if selected_urb_file != "All_samples":
-            cfua_data = spaces_csv_handler(file_name=f"ndp/cfua/{selected_urb_file}.csv",operation="download")
-            cfua_data = calc_area(cfua_data)
-            scale_axis = False
-        else: #get all city samples and concat
-            cfua_data = pd.DataFrame()
-            for name in filtered_names:
-                sample_df = spaces_csv_handler(file_name=f"ndp/cfua/{name}.csv",operation="download")
-                sample_df = calc_area(sample_df)
-                cfua_data = pd.concat([cfua_data,sample_df])
-                del sample_df
-            scale_axis = True
-        #change e to FAR and gfa to GFA if needed..
-        if 'e' in cfua_data.columns:
-            cfua_data.rename(columns={'e': 'FAR', 'gfa': 'GFA', 'numfloors': 'Floors'}, inplace=True)
-        
-        return cfua_data, scale_axis
-        
-    def diversity_index(df_in,use_cols):
-        df = df_in.copy()
-        df['shannon_index'] = round(df[use_cols].apply(shannon_index, axis=1),3)
-        min_shannon = df['shannon_index'].min()
-        max_shannon = df['shannon_index'].max()
-        df_in['mixed-use'] = round(((df['shannon_index'] - min_shannon) / (max_shannon - min_shannon)) * 100,2)
-        orig_cols = list(df_in.columns)
-        orig_cols.insert(9, orig_cols.pop(orig_cols.index('mixed-use')))
-        df_out = df_in[orig_cols]
-        del df_in
-        del df
-        return df_out
-
-    def residential_vol(df_in,land_use_cols = ['residential-all','commercial','public']):
-        df = df_in.copy()
-        df['all_buildings'] = df['residential-all'] + df['commercial'] + df['public']
-        df['residential_large_share'] = round(df['residential-large'] / df['all_buildings'],3)
-        min_share  =df['residential_large_share'].min()
-        max_share = df['residential_large_share'].max()
-        df_in['high-res-index'] = round(((df['residential_large_share'] - min_share) / (max_share - min_share)) * 100,2)
-        orig_cols = list(df_in.columns)
-        orig_cols.insert(9, orig_cols.pop(orig_cols.index('high-res-index')))
-        df_out = df_in[orig_cols]
-        del df_in
-        del df
-        return df_out
+    cf_reg_all = bin_age(cf_reg_all)
     
-    def amenity_densities(df_in):
-        df = df_in.copy()
-        
-        df['Consumer_urb_index'] = round(df['consumer_urbanism'] / df['GFA'],3)
-        min_con = df['Consumer_urb_index'].min()
-        max_con = df['Consumer_urb_index'].max()
-        df_in['Consumer_urb_index'] = round(((df['Consumer_urb_index'] - min_con) / (max_con - min_con)) * 100,2)
-        
-        df['Time_spending_index'] = round(df['time_spending'] / df['GFA'],3)
-        min_tim = df['Time_spending_index'].min()
-        max_tim = df['Time_spending_index'].max()
-        df_in['Time_spending_index'] = round(((df['Time_spending_index'] - min_tim) / (max_tim - min_tim)) * 100,2)
-        
-        orig_cols = list(df_in.columns)
-        orig_cols.insert(12, orig_cols.pop(orig_cols.index('Consumer_urb_index')))
-        orig_cols.insert(12, orig_cols.pop(orig_cols.index('Time_spending_index')))
-        df_out = df_in[orig_cols]
-        del df_in
-        del df
-        return df_out
-    
-    #prepare data func to be used also in explorer..
-    def prepare_data(selected_urb_file):
-        cfua_data, scale_axis = get_sample(selected_urb_file=selected_urb_file,filtered_names=names)
-        cfua_data['residential-all'] = cfua_data['residential-small'] + cfua_data['residential-large']
-        land_use_cols = ['residential-all','commercial','public']
-        cfua_data = diversity_index(cfua_data,use_cols=land_use_cols)
-        cfua_data = residential_vol(cfua_data,land_use_cols=land_use_cols)
-        cfua_data = amenity_densities(cfua_data)
-        return cfua_data, scale_axis
-    
-    #@st.cache_data()
-    def allas_get(filepath):
-        r = requests.get(filepath, stream=True)
-        data = io.BytesIO(r.content)
-        cfua_data = pd.read_csv(data)
-        cfua_data = cfua_data.loc[:, ~cfua_data.columns.str.startswith('Unnamed')]
-        return cfua_data
-        
-    
-    # ------------------ main ------------------
-    cfua_df = None
-    if selected_urb_file != "...":
-
-        #cfua_data, scale_axis = prepare_data(selected_urb_file)
-
-        if selected_urb_file != "All_samples":
-            file = f"{cfua_allas}CFUA/{selected_urb_file}.csv"
-            cfua_data = allas_get(file)
-        else:
-            cfua_data = pd.DataFrame()
-            for name in names:
-                file = f"{cfua_allas}CFUA/{name}.csv"
-                file = f"{cfua_allas}CFUA/{selected_urb_file}.csv"
-                city_df = allas_get(file)
-                cfua_data = pd.concat([cfua_data,city_df])
-                del city_df
-        
-        dropcols = ['city','wkt','consumer_urbanism','time_spending','worklife','miscellaneous']
-        cfua_df = cfua_data.drop(columns=dropcols)
-        #st.data_editor(cfua_df)
-        #st.stop()
-        
-        # ------- cols for features --------
-        density_cols = cfua_df.drop(columns='clusterID').columns.tolist()[2:4]
-        land_use_cols = cfua_df.drop(columns='clusterID').columns.tolist()[7:9]
-        cf_cols = cfua_df.drop(columns='clusterID').columns.tolist()[13:]
-        classification = cfua_df.drop(columns='clusterID').columns.tolist()[13:]
-
-        c1,c2,c3 = st.columns(3)
-        yax = c1.selectbox('Density metric (y)',density_cols,index=0)
-        xax = c2.selectbox('Diversity metric (x)',land_use_cols,index=0)
-        size = c3.selectbox('Carbon footprint (size&color)',cf_cols,index=0)
-        
-        if yax != xax:
-            try:
-                scat_plot = carbon_vs_pois_scatter(cfua_df,
-                                    hovername='clusterID',
-                                    cf_col=size,
-                                    x_col=xax,
-                                    y_col=yax,
-                                    z_col=size,
-                                    scale_axis=True,
-                                    trendline=False,
-                                    bins=None,
-                                    title=f"CFUA scatter, Sample N = {len(cfua_df)}")
-            
-                st.plotly_chart(scat_plot, use_container_width=True, config = {'displayModeBar': False} )
-            except:
-                st.warning('Failed to plot scatter.')
-                
-        with st.expander("Correlation matrix",expanded=True):
-            colorscale_cont = [
-                    [0.0, 'cornflowerblue'],
-                    [0.8/3.0, 'skyblue'],
-                    [0.8/2.0, 'orange'],
-                    [1.0, 'darkred']
-                ]
-            colorscale_dicr = [
-                [0.0, 'cornflowerblue'], [0.33, 'cornflowerblue'],
-                [0.33, 'skyblue'], [0.5, 'skyblue'],
-                [0.5, 'orange'], [0.66, 'orange'],
-                [0.66, 'darkred'], [1.0, 'darkred']
-            ]
-
-            def single_corr_matrix(df, color_scale, sample_name, control_var=None):
-               
-                # Validate control_var
-                if control_var and control_var not in df.columns:
-                    st.warning("Control variable {control_var} not found in DataFrame columns.")
-                    raise ValueError(f"Control variable {control_var} not found in DataFrame columns.")
-                
-                # Compute partial correlations if control_var is specified
-                if control_var:
-                    # Initialize an empty DataFrame for partial correlations
-                    partial_corrs = df.corr()  # Starting with full correlation as a template for indices
-                    corr_result_df = pd.DataFrame() #df to concat p-value results
-                    for col1 in df.columns:
-                        for col2 in df.columns:
-                            if col1 != col2:
-                                # Compute partial correlation, excluding control_var from analysis if it matches either column
-                                if col1 == control_var or col2 == control_var:
-                                    partial_corrs.loc[col1, col2] = df[[col1, col2]].corr().iloc[0, 1]
-                                else:
-                                    partial_corr_result_df = pg.partial_corr(data=df, x=col1, y=col2, covar=control_var)
-                                    partial_corrs.loc[col1, col2] = partial_corr_result_df['r'].values[0]
-                                    corr_result_df = pd.concat([corr_result_df,partial_corr_result_df])
-                                    
-                            else:
-                                # Set diagonal to 1 for self-correlation
-                                partial_corrs.loc[col1, col2] = 1.0
-
-                    # Remove the control_var from the correlation matrix
-                    partial_corrs = partial_corrs.drop(index=control_var, columns=control_var, errors='ignore')
-                    corr = partial_corrs
-                    control_var_text = "income level controlled"
-                
-                else:
-                    # Compute regular correlation if no control_var specified
-                    corr = df.corr()
-                    control_var_text = "income level not controlled"
-                    corr_result_df = None
-                
-                trace = go.Heatmap(z=corr.values,
-                                x=corr.index.values,
-                                y=corr.columns.values,
-                                colorscale=color_scale)
-                fig = go.Figure()
-                fig.add_trace(trace)
-                fig.update_layout(margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=800, title_text=f"{sample_name}, {control_var_text}")
-                return fig, corr_result_df
-
-                
-            def facet_corr_matrix_by_city(df, color_scale, control_var=None):
-                unique_cities = df['city'].unique()
-                n = len(unique_cities)
-                
-                # Create subplot layout: adjust rows and cols as per your preference
-                rows = int(n**0.5) + (1 if n % int(n**0.5) > 0 else 0)
-                cols = int(n / rows) + (n % rows > 0)
-                
-                fig = make_subplots(rows=rows, cols=cols, subplot_titles=unique_cities)
-                
-                for i, city in enumerate(unique_cities, start=1):
-                    city_df = df[df['city'] == city].drop(columns=['city','clusterID','wkt']).select_dtypes(include=np.number)
-                    heatmap_fig, corr_df = single_corr_matrix(city_df, color_scale, city, control_var)
-                    del corr_df
-                    # For each subplot, add the heatmap. Note: we need to extract the trace from heatmap_fig
-                    for trace in heatmap_fig.data:
-                        trace.showscale = False
-                        fig.add_trace(trace, row=(i-1)//cols + 1, col=(i-1) % cols + 1)
-                
-                fig.update_layout(height=800 * rows, width=500 * cols, showlegend=False,
-                                title_text="Correlation Heatmaps by City, income level not controlled")
-                return fig
-        
-            drop_from_corr = ['clusterID','type','floorcat']
-            if selected_urb_file == "All_samples":
-                corvar = st.toggle('Income level controlled')
-                
-                if corvar:
-                    fig, corr_df = single_corr_matrix(cfua_df.drop(columns=drop_from_corr),color_scale=colorscale_dicr,sample_name=selected_urb_file,
-                                            control_var='Income Level decile')
-                    st.plotly_chart(fig, use_container_width=True, config = {'displayModeBar': False} )
-                    st.markdown('**Partial correlation results**')
-                    st.data_editor(corr_df.describe())
-                else:
-                    fig, corr_df = single_corr_matrix(cfua_df.drop(columns=drop_from_corr),color_scale=colorscale_dicr,sample_name=selected_urb_file,
-                                            control_var=None)
-                    st.plotly_chart(fig, use_container_width=True, config = {'displayModeBar': False} )
-                
-
-                #..and by city
-                fig = facet_corr_matrix_by_city(cfua_data,color_scale=colorscale_dicr,control_var=None) #not big enough sample
-                st.plotly_chart(fig, use_container_width=True, config = {'displayModeBar': False} )
-                
-            else:
-                fig, corr_df = single_corr_matrix(cfua_df.drop(columns=drop_from_corr),color_scale=colorscale_dicr,sample_name=selected_urb_file)
-                st.plotly_chart(fig, use_container_width=True, config = {'displayModeBar': False} )
-                
-
-with tab4:
-    reg_file = f"{cfua_allas}REG/cfua_for_regression.csv"
-    cf_all = allas_get(reg_file)
-    cfua_reg = cf_all.loc[~cf_all['clusterID'].isna()]
-    
-    with st.expander('cluster data with per capita values'):
-        hide = ['consumer_urbanism','time_spending','worklife','miscellaneous']
-        st.data_editor(cfua_reg.drop(columns=hide))
-        st.text(f"Sample size {len(cfua_reg)}")
-        
     def calculate_per_capita(df, cluster_col, cols):
         grouped = df.groupby(cluster_col)
         per_capita = round(grouped[cols].sum().div(grouped.size(), axis=0),-1)
         return per_capita
     
-    regcols = cfua_reg.columns.tolist()[19:-6]
+    def remove_outliers_and_normalize(df, cols, outlier='Percent'):
+            if outlier == 'IQR':
+                for col in cols:
+                    Q1 = df[col].quantile(0.25)
+                    Q3 = df[col].quantile(0.75)
+                    IQR = Q3 - Q1
+                    lower_bound = Q1 - 1.5 * IQR
+                    upper_bound = Q3 + 1.5 * IQR
+                    df_out = df[(df[col] >= lower_bound) & (df[col] <= upper_bound)]
+                    df_out[col] = np.log1p(df_out[col])
+            else:
+                for col in cols:
+                    lower_bound = df[col].quantile(0.01)
+                    upper_bound = df[col].quantile(0.99)
+                    df_out = df[(df[col] >= lower_bound) & (df[col] <= upper_bound)]
+                    df_out[col] = np.log1p(df_out[col])
+                    
+            return df_out
     
-    result = calculate_per_capita(cfua_reg, 'urban_type', regcols).reset_index()
+    with st.expander('Per capita values in cities'):
+        
+        st.text(f"Sample size {len(cf_reg_all)}")
     
-    #the plot
-    bivar_fig = px.bar(result, x="urban_type", y=regcols[1:-1], title="Per capita footprints in urban types")
-    st.plotly_chart(bivar_fig, use_container_width=True, config = {'displayModeBar': False} )
-
-    with st.expander('Expl'):
-        #legend
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        legend = conn.read()
-        st.subheader('Urban base types')
-        st.table(legend)
-        expl = """
-        Thresholds (based on the quartiles in the sample):  
-        - 'gfa': low < 310 sqm / high > 920 sqm medians for buildings in the cluster  
-        - 'far': low < 0.15 / high > 0.5 
-        - 'consumer_urbanism_sdi': low < 3.4 / high > 4.0 for shannon diversity of amenities
-        - 'time_spending_sdi': low < 2.3 / high > 2.9
-        """
-        st.caption(expl)
+        reg_cols = cf_reg_all.columns.tolist()[3:12]
         
-        thresholds = {
-            'gfa': {'low': (130.0, 309.99999999999994),
-            'med': (309.99999999999994, 919.9999999999998),
-            'high': (919.9999999999998, 12140.0)},
-            'far': {'low': (0.15, 0.30999999999999994),
-            'med': (0.30999999999999994, 0.4699999999999999),
-            'high': (0.4699999999999999, 1.755)},
-            'consumer_urbanism_sdi': {'low': (0.0, 3.45404079673468),
-            'med': (3.45404079673468, 4.096803198966489),
-            'high': (4.096803198966489, 4.906429860839397)},
-            'time_spending_sdi': {'low': (0.0, 2.299896391167892),
-            'med': (2.299896391167892, 2.8527241956246545),
-            'high': (2.8527241956246545, 3.4977765919331216)}
-            }
+        city_results = calculate_per_capita(cf_reg_all, 'city', reg_cols).reset_index()
         
-        st.subheader('Type combination counts in the sample')
-        featcols = ['urban_type','combined_class']
-        st.table(cfua_reg[featcols].value_counts())
+        norm = st.toggle('Normalize')
+        if norm:
+            city_results = remove_outliers_and_normalize(city_results, reg_cols)
+        else:
+            city_results = city_results.copy()
+        #the plot
+        bivar_fig = px.bar(city_results, x="city", y=reg_cols[:-1], title="Per capita footprints in Cities")
+        st.plotly_chart(bivar_fig, use_container_width=True, config = {'displayModeBar': False} )
         
     st.markdown('---')
     
     st.subheader('Multi-regression study')
-    cf_orig = None
-    with st.status('Preparing data..',expanded=True) as status:
-        
-        @st.cache_data()
-        def get_origs():
-            orig_file = f"{cfua_allas}CF/CFORIG_2022-12-04.csv"
-            col_key_file = f"{cfua_allas}CF/cf_col_keys.csv"
-            calc_key_file = f"{cfua_allas}CF/cf_col_keys.csv"
-            cf_orig = allas_get(orig_file)
-            cf_col_keys = allas_get(col_key_file)
-            cf_calc_keys = allas_get(calc_key_file)
-            return cf_orig,cf_col_keys,cf_calc_keys
-        cf_orig,cf_keys,calc_keys = get_origs()
-        
-        #map col names
-        col_mapping_dict = pd.Series(cf_keys.name.values, index=cf_keys.key).to_dict()
-        calc_mapping_dict = pd.Series(calc_keys.name.values, index=cf_keys.key).to_dict()
-        cf_orig.rename(columns=col_mapping_dict, inplace=True)
-        cf_orig.rename(columns=calc_mapping_dict, inplace=True)
-        cf_orig.columns = cf_orig.columns.str.replace(r'\W+', '_').str.strip('_').str.replace(r'^(\d+)', r'_\1')
-        
-        st.markdown('Original data')
-        st.data_editor(cf_orig, key='orig')
-        st.text(len(cf_orig))
-            
-        status.update(label="Data prepared!", state="complete", expanded=False)
-        
-        st.markdown('Filtered data for regression')
-        reg_data_holder = st.empty()
-        reg_len = st.empty()
-        code = '''
-                def ols_reg(df,cf_col='cf_footprint_ex_pm'):
-                    base_formula = f'{cf_col} ~ C(hh_inc_cap_dec) + C(househ_type) + C(Age) + C(Gender) + C(Education_level) + C(cntr)'
-                    ext_formula = f'{cf_col} ~ C(hh_inc_cap_dec) + C(househ_type) + C(Age) + C(Gender) + C(Education_level) + C(cntr) + C(gfa_class) + C(far_class) + C(consumer_urbanism_sdi_class) + C(time_spending_sdi_class)'
-                    base_model = smf.ols(formula=base_formula, data=df)
-                    base_results = base_model.fit()
-                    ext_model = smf.ols(formula=ext_formula, data=df)
-                    ext_results = ext_model.fit()
-                    return base_results, ext_results
-                '''
-        st.code(code, language='python')
-        st.markdown('[Statmodels](https://www.statsmodels.org/stable/api.html#api-reference)')
+    #cf_reg_all.columns = cf_reg_all.columns.str.replace(r'\W+', '_').str.strip('_').str.replace(r'^(\d+)', r'_\1')
+    #myindepvars = cf_reg_all.columns.tolist()[12:19]
+    #var_cols = c2.multiselect('Independent vars',myindepvars,default=myindepvars)
     
-    # -------- regression --------
-    if cf_orig is not None:
-        @st.cache_data()
-        def join(cf_orig,cfua_reg,urban_cols):
-            cf_orig['lat'] = cf_orig['lat'].str.replace(',', '.').astype(float)
-            cf_orig['lon'] = cf_orig['lon'].str.replace(',', '.').astype(float)
-            gdf_points = gpd.GeoDataFrame(
-                cf_orig, geometry=[Point(xy) for xy in zip(cf_orig.lon, cf_orig.lat)],
-                crs='EPSG:4326'
-            )
-            gdf_polygons = gpd.GeoDataFrame(
-                cfua_reg, geometry=gpd.GeoSeries.from_wkt(cfua_reg['wkt']),
-                crs='EPSG:4326'
-            )
-            cf_orig_filtered_gdf = gpd.sjoin(gdf_points, gdf_polygons, op='within', how='inner')
-            columns_to_keep = cf_orig.columns.tolist() + ['urban_type'] + urban_cols
-            cf_orig_out = cf_orig_filtered_gdf[columns_to_keep]
-            return cf_orig_out.reset_index()
+    with st.expander('Normalized data'):
+        method = st.radio('Method for outliers',['Percent','IQR'],horizontal=True)
+        cf_normalized = remove_outliers_and_normalize(cf_reg_all, reg_cols, outlier=method)
         
-        urban_cols = ['gfa_class','far_class','consumer_urbanism_sdi_class','time_spending_sdi_class']
-        cf_filtered = join(cf_orig,cfua_reg,urban_cols=urban_cols)
-        #preprocess..
-        def preprocess_df(df):
-            #some binning..
-            agebins = [0, 30, 60, 100]
-            agelabels = ['Young', 'Middle-aged', 'Senior']
-            df['Age'] = pd.cut(df['Age'], bins=agebins, labels=agelabels, include_lowest=True)
-            incbins = [0, 6, 9, 12]
-            inclabels = ['poor', 'middle', 'afluent']
-            df['hh_inc_cap_dec'] = pd.cut(df['hh_inc_cap_dec'], bins=incbins, labels=inclabels, include_lowest=True)
-            
-            columns = df.columns
-            for col in columns:
-                if df[col].dtype == 'object':
-                    try:
-                        df[col] = df[col].str.replace(',', '.').astype(float)
-                    except ValueError:
-                        continue
-                df[col] = df[col].replace([np.inf, -np.inf], np.nan)
-                if pd.api.types.is_numeric_dtype(df[col]):
-                    median = df[col].median(skipna=True)
-                    df[col].fillna(median, inplace=True)
-            for col in columns[1:]: #all but first col..
-                df[col] = pd.Categorical(df[col])
-            return df
+        st.data_editor(cf_normalized)
+        hist_place = st.empty()
+
+    default_inx = reg_cols.index('total_footprint')
+    c1,c2,c3 = st.columns(3)
+    cf_col = c1.selectbox('Domain to study',options=reg_cols,index=default_inx)
+    #indepcols = ['age_class','education_level','income_level_decile','household_type','urban_degree','country']
+    #ipcols = c2.multiselect('Indep.vars',indepcols,default=indepcols.remove('age_class'))
+    hist = px.histogram(cf_normalized, x=cf_col, color="country", title='Normalized (log1p) distribution')
+    hist_place.plotly_chart(hist, use_container_width=True, config = {'displayModeBar': False} )
+
+    if st.toggle('Calculate regression'):
         
-        myindepvars = ['hh_inc_cap_dec','househ_type','Age','Gender','Education_level','cntr'] + urban_cols
-        orig_cols = cf_orig.columns.tolist()
-        default_inx = orig_cols.index('cf_footprint_ex_pm') #[c for c in orig_cols if c.startswith('cu')]
-        c1,c2 = st.columns(2)
-        cf_col = c1.selectbox('Domain to study',options=orig_cols,index=default_inx)
-        regdata = cf_filtered[[cf_col] + myindepvars]
-        processed_df = preprocess_df(regdata)
-        
-        with reg_data_holder:
-            st.data_editor(processed_df)
-        with reg_len:
-            st.text(len(processed_df))
-        
-        if st.button('Compute regressions'):
-            
-            def ols_reg(df,cf_col='cf_footprint_ex_pm'):
-                base_formula = f'{cf_col} ~ C(hh_inc_cap_dec) + C(househ_type) + C(Age) + C(Gender) + C(Education_level) + C(cntr)'
-                ext_formula = f'{cf_col} ~ C(hh_inc_cap_dec) + C(househ_type) + C(Age) + C(Gender) + C(Education_level) + C(cntr) + C(gfa_class) + C(far_class) + C(consumer_urbanism_sdi_class) + C(time_spending_sdi_class)'
+        with st.status('Calculating..',expanded=True) as stat:
+            def ols_reg(df,cf_col='total_footprint'):
+                base_formula = f'{cf_col} ~ C(age_class) + C(education_level) + C(income_level_decile) + C(household_type) + C(urban_degree) + C(country)'
+                ext_formula = f'{cf_col} ~ C(age_class) + C(education_level) + C(income_level_decile) + C(household_type) + C(urban_degree) + C(country) + res_gfa_loc + res_gfa_nd + other_gfa_loc + other_gfa_nd + services_loc + services_nd + sdi_loc + sdi_nd'
                 base_model = smf.ols(formula=base_formula, data=df)
                 base_results = base_model.fit()
                 ext_model = smf.ols(formula=ext_formula, data=df)
                 ext_results = ext_model.fit()
                 return base_results, ext_results
+
+            base_results, ext_results = ols_reg(df=cf_normalized,cf_col=cf_col)
             
-            base_results, ext_results = ols_reg(df=processed_df,cf_col=cf_col)
-            s1,s2 = st.columns(2)
-            s1.text(base_results.summary())
-            s2.text(ext_results.summary())
+            with st.container(height=300):
+                s1,s2 = st.columns(2)
+                s1.markdown('**Without urban features** (Base model)')
+                s1.text(base_results.summary())
+                s2.markdown('**With urban features** (Ext model)')
+                s2.text(ext_results.summary())
             
             reg_results = pd.DataFrame({
                             'Base β': base_results.params,
@@ -1120,205 +552,12 @@ with tab4:
                         })
             st.data_editor(reg_results,use_container_width=True)
             
-            def reg_plot(reg_results):
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=reg_results['Base β'], 
-                    y=-np.log10(reg_results['Base p']),
-                    mode='markers',
-                    name='Base Model',
-                    marker=dict(color='blue', size=10),
-                    text=reg_results.index
-                ))
+            stat.update(label="Done!", state="complete", expanded=True)
 
-                fig.add_trace(go.Scatter(
-                    x=reg_results['Ext β'], 
-                    y=-np.log10(reg_results['Ext p']),
-                    mode='markers',
-                    name='Extended Model',
-                    marker=dict(color='red', size=10),
-                    text=reg_results.index
-                ))
-                fig.update_layout(
-                    title='Comparison of Base and Extended Model Coefficients and p-values',
-                    xaxis_title='Coefficients (β)',
-                    yaxis_title='-log10(p-value)',
-                    legend_title='Model'
-                )
-                return fig
-            
-            st.plotly_chart(reg_plot(reg_results), use_container_width=True, config = {'displayModeBar': False} )
-        
-
-
-with tab5:
-    st.subheader('Land-use explorer')
-    
-    def get_osm_landuse(polygon=None,add=None,radius=500,tags = {'natural':True,'landuse':True},exclude=['bay','water'],removeoverlaps=False):
-        if add is not None:
-            loc = geocoder.mapbox(add, key=mbtoken)
-            latlon = (loc.lat,loc.lng)
-            data = ox.features_from_point(latlon,dist=radius,tags=tags).reset_index()
-        else:
-            if polygon is not None:
-                data = ox.features_from_polygon(polygon,tags=tags).reset_index()
-            else:
-                st.stop()
-        
-        gdf = data.loc[data['geometry'].geom_type.isin(['Polygon', 'MultiPolygon'])]
-        if tags == {'landuse':True}:
-            gdf['type'] = gdf.apply(lambda row: row['landuse'], axis=1)
-        elif tags == {'natural':True}:
-            gdf['type'] = gdf.apply(lambda row: row['natural'], axis=1)
-        else:
-            gdf['type'] = gdf.apply(lambda row: row['landuse'] if pd.notna(row['landuse']) else row['natural'], axis=1)
-        
-        #clip & filter if add
-        if add is not None:
-            center_gdf = gpd.GeoDataFrame(geometry=[Point(latlon[1],latlon[0])], crs="EPSG:4326")
-            utm = center_gdf.estimate_utm_crs()
-            gdf_utm = gdf[~gdf['type'].isin(exclude)].to_crs(utm)
-            buffer = center_gdf.to_crs(utm).buffer(radius)
-            filtered_gdf = gpd.clip(gdf_utm, buffer)
-            filtered_gdf['area'] = filtered_gdf.area
-        else:
-            filtered_gdf = gdf.copy()
-            utm = filtered_gdf.estimate_utm_crs()
-            filtered_gdf['area'] = filtered_gdf.to_crs(utm).area
-        
-        del gdf
-        
-        #remove overlaps
-        if removeoverlaps:
-            to_remove = []
-            for index, polygon in filtered_gdf.iterrows():
-                others = filtered_gdf.drop(index)
-                overlaps = others[others.geometry.overlaps(polygon.geometry)]
-                total_overlap_area = sum(overlaps.geometry.intersection(polygon.geometry).area)
-                overlap_percentage = total_overlap_area / polygon.geometry.area
-                if overlap_percentage > 0.01:
-                    to_remove.append(index)
-            filtered_gdf = filtered_gdf.drop(to_remove)
-            #recalc area
-            filtered_gdf['area'] = filtered_gdf.area
-            
-        #cols
-        columns_to_use=['name','type','area','geometry']
-        def col_check(df,cols):
-            selected_columns = [col for col in cols if col in df.columns]
-            return selected_columns
-        return  filtered_gdf.to_crs(4326)[col_check(filtered_gdf,columns_to_use)]
-
-    def plot_landuse(gdf,name,col='type',color_map=None,zoom=14):
-        
-        if color_map is None:
-            unique_categories = gdf[col].unique()
-            colors = px.colors.qualitative.Set2
-            color_map = {category: colors[i % len(colors)] for i, category in enumerate(unique_categories)}
-        
-        cat_order = list(color_map.keys())
-        
-        lat = gdf.unary_union.centroid.y
-        lon = gdf.unary_union.centroid.x
-        fig_map = px.choropleth_mapbox(gdf,
-                                geojson=gdf.geometry,
-                                locations=gdf.index,
-                                title=name,
-                                color=col,
-                                hover_name=col,
-                                color_discrete_map=color_map,
-                                category_orders={col:cat_order},
-                                center={"lat": lat, "lon": lon},
-                                mapbox_style=my_style,
-                                zoom=zoom,
-                                opacity=0.5,
-                                width=1200,
-                                height=700
-                                )
-
-        fig_map.update_layout(margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=700,
-                                    legend=dict(
-                                        yanchor="top",
-                                        y=0.97,
-                                        xanchor="left",
-                                        x=0.02
-                                    )
-                                    )
-        return fig_map
-
-    #land use mix
-    def land_use_mix(gdf):
-        utm_crs = gdf.estimate_utm_crs()
-        gdf['area'] = gdf.to_crs(utm_crs).area
-        total_area = gdf['area'].sum()
-        proportions = gdf.groupby('type')['area'].sum() / total_area
-        diversity_index = -sum(proportions * np.log(proportions)) #shannon diversity formula
-        return round(diversity_index,2)
-
-    #selector
-    def dataframe_with_selections(df):
-        df_with_selections = df.copy()
-        df_with_selections.insert(0, "Select", False)
-        # Get dataframe row-selections from user with st.data_editor
-        edited_df = st.data_editor(
-            df_with_selections,
-            hide_index=True,
-            column_config={"Select": st.column_config.CheckboxColumn(required=True)},
-            disabled=df.columns,
-        )
-        # Filter the dataframe using the temporary column, then drop the column
-        selected_rows = edited_df[edited_df.Select]
-        return selected_rows.drop('Select', axis=1)
-        
-        
-    # -------------- UI ----------------
-    gdfs = None
-    s1,s2 = st.columns(2)
-    
-    selected_urb_file3 = s1.selectbox('Select cluster to study',selectbox_names[:-1],key='classifier')
-    plot_type = s2.radio("Type",['land_use','land_cover'],horizontal=True)
-    
-    if selected_urb_file3 != "...":
-        file = f"{cfua_allas}CFUA/{selected_urb_file3}.csv"
-        cfua_data3 = allas_get(file)
-        cfua_data3 = cfua_data3.loc[:, ~cfua_data3.columns.str.startswith('Unnamed')]
-        cfua_data3 = cfua_data3.drop(columns=['consumer_urbanism','time_spending','worklife','miscellaneous'])
-        
-        with st.expander('Case areas',expanded=True):
-            selected = dataframe_with_selections(cfua_data3)
-        
-        st.cache_data()
-        def get_data_poly(poly,overlaptags = ['grass','meadow','forest']):
-            gdf_landuse = get_osm_landuse(polygon=poly,tags={'landuse':True},radius=500)
-            gdf_landuse = gdf_landuse.loc[~gdf_landuse['type'].isin(overlaptags)]
-            gdf_landcover = get_osm_landuse(polygon=poly,tags={'natural':True,'landuse':overlaptags},radius=500)
-            return gdf_landuse,gdf_landcover
-        
-        if len(selected) == 1:
-            poly = wkt.loads(selected['wkt'].iloc[0])
-            gdfs = get_data_poly(poly)
-        else:
-            st.warning('Select area to study')
-        
-    if gdfs is not None:
-        if plot_type == 'land_use':
-            fig_osm = plot_landuse(gdfs[0],name=plot_type,col="type")
-            shi = land_use_mix(gdfs[0])
-        else:
-            fig_osm = plot_landuse(gdfs[1],name=plot_type,col="type")
-            shi = land_use_mix(gdfs[1])
-        
-        with st.status(plot_type,expanded=True):
-            st.plotly_chart(fig_osm, use_container_width=True, config = {'displayModeBar': False})
-            st.metric('Shannon index',value=shi)
-
-
-
-
-
-
-
-
+            #the plot
+            #reg_fig = px.bar(reg_results, x=['Base β','Base p','Ext β','Ext p'], y=reg_results.index,
+            #                 range_x=[-1,1],title="Comparison")
+            #st.plotly_chart(reg_fig, use_container_width=True, config = {'displayModeBar': False} )
 
 #footer
 st.markdown('---')
