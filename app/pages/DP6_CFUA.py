@@ -2,6 +2,7 @@
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
+import h3pandas as h3
 import numpy as np
 from shapely import wkt
 from shapely.geometry import MultiPoint, Point
@@ -15,6 +16,7 @@ import io
 import plotly.express as px
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
+import json
 
 #ML
 from scipy import stats
@@ -164,7 +166,7 @@ if not auth:
 # ------------------ plotters ------------------
 
 #map plotter
-def plot_sample_clusters(gdf_in,cf_col="Total footprint"):
+def plot_sample_clusters(gdf_in,cf_col="Total footprint", boundary=None):
 
     gdf = gdf_in.copy()
     lat = gdf.unary_union.centroid.y
@@ -221,7 +223,20 @@ def plot_sample_clusters(gdf_in,cf_col="Total footprint"):
                             width=1200,
                             height=700
                             )
-
+    if boundary is not None:
+        fig_map.update_layout(
+                    mapbox={
+                        "layers": [
+                            {
+                                "source": json.loads(boundary.to_crs(4326).to_json()),
+                                #"below": "traces",
+                                "type": "line",
+                                "color": "black",
+                                "line": {"width": 0.5,"dash":[5,5]},
+                            }
+                        ]
+                    }
+                )
     fig_map.update_layout(margin={"r": 10, "t": 50, "l": 10, "b": 10}, height=700,
                                 legend=dict(
                                     yanchor="top",
@@ -489,10 +504,8 @@ with tab3:
                     
             return df_out
     
-    with st.expander('Per capita values in cities'):
-        
-        st.text(f"Sample size {len(cf_reg_all)}")
-    
+    with st.expander('Per capita values in cities',expanded=False):
+
         reg_cols = cf_reg_all.columns.tolist()[3:12]
         
         city_results = calculate_per_capita(cf_reg_all, 'city', reg_cols).reset_index()
@@ -505,6 +518,15 @@ with tab3:
         #the plot
         bivar_fig = px.bar(city_results, x="city", y=reg_cols[:-1], title="Per capita footprints in Cities")
         st.plotly_chart(bivar_fig, use_container_width=True, config = {'displayModeBar': False} )
+        st.text(f"Sample size with urban features {len(cf_reg_all)}")
+        
+        #map check
+        cities = city_results['city'].tolist()
+        def_city = cities.index('Helsinki')
+        city = st.selectbox('City',options=cities,index=def_city)
+        city_h3 = cf_reg_all.loc[cf_reg_all['city'] == city].set_index('h3_id')
+        #plotted below..
+        map_place = st.empty()
         
     st.markdown('---')
     
@@ -519,13 +541,18 @@ with tab3:
         
         st.data_editor(cf_normalized)
         hist_place = st.empty()
+        st.text(f"Sample size without outliers {len(cf_normalized)}")
 
     default_inx = reg_cols.index('total_footprint')
     c1,c2,c3 = st.columns(3)
-    cf_col = c1.selectbox('Domain to study',options=reg_cols,index=default_inx)
-    #indepcols = ['age_class','education_level','income_level_decile','household_type','urban_degree','country']
-    #ipcols = c2.multiselect('Indep.vars',indepcols,default=indepcols.remove('age_class'))
-    hist = px.histogram(cf_normalized, x=cf_col, color="country", title='Normalized (log1p) distribution')
+    reg_col = c1.selectbox('Domain to study',options=reg_cols,index=default_inx)
+    with map_place:
+        city_hexas = city_h3.h3.h3_to_geo_boundary()
+        city_boundaries = city_h3.h3.hex_ring(1,explode=True).set_index('h3_hex_ring').h3.h3_to_geo_boundary()
+        h3_plot = plot_sample_clusters(city_hexas,cf_col=reg_col, boundary=city_boundaries)
+        st.plotly_chart(h3_plot, use_container_width=True, config = {'displayModeBar': False} )
+        
+    hist = px.histogram(cf_normalized, x=reg_col, color="country", title='Normalized (log1p) distribution')
     hist_place.plotly_chart(hist, use_container_width=True, config = {'displayModeBar': False} )
 
     if st.toggle('Calculate regression'):
@@ -540,7 +567,7 @@ with tab3:
                 ext_results = ext_model.fit()
                 return base_results, ext_results
 
-            base_results, ext_results = ols_reg(df=cf_normalized,cf_col=cf_col)
+            base_results, ext_results = ols_reg(df=cf_normalized,cf_col=reg_col)
             
             with st.container(height=300):
                 s1,s2 = st.columns(2)
