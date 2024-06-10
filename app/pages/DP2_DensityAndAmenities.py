@@ -53,6 +53,25 @@ st.markdown(header, unsafe_allow_html=True)
 #px.defaults.width = 600
 px.defaults.height = 700
 
+def check_password():
+    def password_entered():
+        if (
+            st.session_state["password"]
+            == st.secrets["passwords"]["cfua"]
+        ):
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
+    if "password_correct" not in st.session_state:
+        st.text_input(label="password", type="password", on_change=password_entered, key="password")
+        return False
+    elif not st.session_state["password_correct"]:
+        st.text_input(label="password", type="password", on_change=password_entered, key="password")
+        return False
+    else:
+        return True
+    
 st.markdown("----")
 # content
 st.title("Data Paper #2")
@@ -60,7 +79,13 @@ st.subheader("Correlation between urban density and amenities")
 st.markdown('This data paper visualise the change in correlation between _**urban density, amenities and daytime population**_. '
             'Research quest here is to see how typical urban design argument of positive density impact on local amenities and livability works in different geographical scales.'
             )
-#ingress, unsafe_allow_html=True)
+
+st.caption("The paper is published: [Compact city and urban planning: Correlation between density and local amenities](https://doi.org/10.1177/23998083241250264)")
+
+auth = check_password()
+if not auth:
+    st.stop()
+
             
 st.markdown("###")
 # translate dict
