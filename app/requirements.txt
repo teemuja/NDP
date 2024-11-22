@@ -1,15 +1,10 @@
-h3pandas
 streamlit
-st-gsheets-connection
-plotly
-statsmodels
-kaleido #0.2.1
-fpdf #1.7.2
+h3
 osmnx
 momepy
 boto3
-pingouin
-scikit-learn
-pandasai
 geocoder
 owslib
+plotly
+statsmodels
+scikit-learn

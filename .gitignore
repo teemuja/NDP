@@ -131,4 +131,4 @@ dmypy.json
 # env based
 .DS_store
 .streamlit
-app/cache/
+cache

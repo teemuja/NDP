@@ -14,77 +14,16 @@ from plotly.subplots import make_subplots
 px.set_mapbox_access_token(st.secrets['MAPBOX_TOKEN'])
 my_style = st.secrets['MAPBOX_STYLE']
 from pathlib import Path
-import h3pandas as h3
+import h3
 import json
 
 
-# page setup ---------------------------------------------------------------
-st.set_page_config(page_title="Data Paper #2", layout="wide", initial_sidebar_state='collapsed')
-padding = 1
-st.markdown(f""" <style>
-    .reportview-container .main .block-container{{
-        padding-top: {padding}rem;
-        padding-right: {padding}rem;
-        padding-left: {padding}rem;
-        padding-bottom: {padding}rem;
-    }}
-    </style> """, unsafe_allow_html=True)
-st.markdown("""
-    <style>
-    div.stButton > button:first-child {
-        background-color: #fab43a;
-        color:#ffffff;
-    }
-    div.stButton > button:hover {
-        background-color: #e75d35; 
-        color:#ffffff;
-        }
-    [data-testid="stMetricDelta"] svg {
-            display: none;}
-    button[title="View fullscreen"]{
-        visibility: hidden;}
-    </style>
-""", unsafe_allow_html=True)
-header = '<p style="font-family:sans-serif; color:grey; font-size: 12px;">\
-        NDP data paper #2 V1.2\
-        </p>'
-st.markdown(header, unsafe_allow_html=True)
-# plot size setup
-#px.defaults.width = 600
-px.defaults.height = 700
-
-def check_password():
-    def password_entered():
-        if (
-            st.session_state["password"]
-            == st.secrets["passwords"]["cfua"]
-        ):
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
-    if "password_correct" not in st.session_state:
-        st.text_input(label="password", type="password", on_change=password_entered, key="password")
-        return False
-    elif not st.session_state["password_correct"]:
-        st.text_input(label="password", type="password", on_change=password_entered, key="password")
-        return False
-    else:
-        return True
-    
-st.markdown("----")
 # content
 st.title("Data Paper #2")
 st.subheader("Correlation between urban density and amenities")
-st.markdown('This data paper visualise the change in correlation between _**urban density, amenities and daytime population**_. '
-            'Research quest here is to see how typical urban design argument of positive density impact on local amenities and livability works in different geographical scales.'
-            )
+st.markdown("The paper is published: [Compact city and urban planning: Correlation between density and local amenities](https://doi.org/10.1177/23998083241250264)")
 
-st.caption("The paper is published: [Compact city and urban planning: Correlation between density and local amenities](https://doi.org/10.1177/23998083241250264)")
-
-auth = check_password()
-if not auth:
-    st.stop()
+st.stop()
 
             
 st.markdown("###")
@@ -966,12 +905,3 @@ with st.spinner():
                         )
         st.success('PDFs generated!')
 
-#footer
-st.markdown('---')
-footer_title = '''
-**NDP Project**
-[![MIT license](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/teemuja/NDP/blob/main/LICENSE) 
-'''
-st.markdown(footer_title)
-disclamer = 'Data papers are constant work in progress and will be upgraded, changed & fixed while research go on.'
-st.caption('Disclaimer: ' + disclamer)

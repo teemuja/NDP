@@ -11,45 +11,9 @@ import plotly.graph_objs as go
 px.set_mapbox_access_token(st.secrets['MAPBOX_TOKEN'])
 my_style = st.secrets['MAPBOX_STYLE']
 from pathlib import Path
-import h3pandas as h3
+import h3
 from shapely import wkt
 
-
-# page setup ---------------------------------------------------------------
-st.set_page_config(page_title="Data Paper #4", layout="wide", initial_sidebar_state='collapsed')
-padding = 1
-st.markdown(f""" <style>
-    .reportview-container .main .block-container{{
-        padding-top: {padding}rem;
-        padding-right: {padding}rem;
-        padding-left: {padding}rem;
-        padding-bottom: {padding}rem;
-    }}
-    </style> """, unsafe_allow_html=True)
-st.markdown("""
-    <style>
-    div.stButton > button:first-child {
-        background-color: #fab43a;
-        color:#ffffff;
-    }
-    div.stButton > button:hover {
-        background-color: #e75d35; 
-        color:#ffffff;
-        }
-    [data-testid="stMetricDelta"] svg {
-            display: none;}
-    button[title="View fullscreen"]{
-        visibility: hidden;}
-    </style>
-""", unsafe_allow_html=True)
-header = '<p style="font-family:sans-serif; color:grey; font-size: 12px;">\
-        NDP data paper #4 V0.91\
-        </p>'
-st.markdown(header, unsafe_allow_html=True)
-# plot size setup
-#px.defaults.width = 600
-px.defaults.height = 700
-st.markdown("----")
 
 # content
 st.title("Data Paper #4")
@@ -120,7 +84,7 @@ with st.expander('Map', expanded=False):
     #feature to plot
     densityof = st.radio('Density of',['Population','GFA'], horizontal=True)
     #calc densities
-    plot = plot.h3.cell_area(unit='m^2')
+    plot['h3_cell_area'] = plot['h3_10'].apply(lambda x: h3.cell_area(unit='m^2'))
     yr_list = ['90','00','10','20']
     for yr in yr_list:
         plot[f'den_pop{yr}'] = round(plot[f'pop{yr}'] / (plot['h3_cell_area']/10000),-1)

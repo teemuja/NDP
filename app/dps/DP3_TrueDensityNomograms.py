@@ -14,41 +14,6 @@ import math
 import statistics
 
 
-# page setup ---------------------------------------------------------------
-st.set_page_config(page_title="Data Paper #3", layout="wide", initial_sidebar_state='collapsed')
-padding = 1
-st.markdown(f""" <style>
-    .reportview-container .main .block-container{{
-        padding-top: {padding}rem;
-        padding-right: {padding}rem;
-        padding-left: {padding}rem;
-        padding-bottom: {padding}rem;
-    }} </style> """, unsafe_allow_html=True)
-st.markdown("""
-    <style>
-    div.stButton > button:first-child {
-        background-color: #fab43a;
-        color:#ffffff;
-    }
-    div.stButton > button:hover {
-        background-color: #e75d35; 
-        color:#ffffff;
-        }
-    [data-testid="stMetricDelta"] svg {
-            display: none;}
-    button[title="View fullscreen"]{
-        visibility: hidden;}
-    </style>
-""", unsafe_allow_html=True)
-header = '<p style="font-family:sans-serif; color:grey; font-size: 12px;">\
-        NDP Data Paper 3 V1.1 \
-        </p>'
-st.markdown(header, unsafe_allow_html=True)
-# plot size setup
-#px.defaults.width = 600
-px.defaults.height = 700
-st.markdown("----")
-
 st.title("Data Paper #3")
 st.markdown("Density measurements using Open Street Map data")
 st.markdown("###")
@@ -353,13 +318,3 @@ with st.expander("What is this?", expanded=False):
             ''')  # https://katex.org/docs/supported.html
 
     st.markdown(soveltaen, unsafe_allow_html=True)
-
-#footer
-st.markdown('---')
-footer_title = '''
-**NDP Project**
-[![MIT license](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/teemuja/NDP/blob/main/LICENSE) 
-'''
-st.markdown(footer_title)
-disclamer = 'Data papers are constant work in progress and will be upgraded, changed & fixed while research go on.'
-st.caption('Disclaimer: ' + disclamer)

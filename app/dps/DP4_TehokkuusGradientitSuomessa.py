@@ -3,10 +3,12 @@ import pandas as pd
 import geopandas as gpd
 import numpy as np
 import streamlit as st
-import h3pandas as h3
+import h3
+import h3.api.basic_int as h3_api
 import numpy as np
 from pathlib import Path
 from shapely import wkt
+from shapely.geometry import shape, Point
 import json
 import geocoder
 from geopandas import points_from_xy
@@ -20,41 +22,6 @@ my_style = st.secrets['MAPBOX_STYLE']
 import math
 import statistics
 
-# page setup ---------------------------------------------------------------
-st.set_page_config(page_title="Data Paper #3", layout="wide", initial_sidebar_state='collapsed')
-padding = 1
-st.markdown(f""" <style>
-    .reportview-container .main .block-container{{
-        padding-top: {padding}rem;
-        padding-right: {padding}rem;
-        padding-left: {padding}rem;
-        padding-bottom: {padding}rem;
-    }} </style> """, unsafe_allow_html=True)
-st.markdown("""
-    <style>
-    div.stButton > button:first-child {
-        background-color: #fab43a;
-        color:#ffffff;
-    }
-    div.stButton > button:hover {
-        background-color: #e75d35; 
-        color:#ffffff;
-        }
-    [data-testid="stMetricDelta"] svg {
-            display: none;}
-    button[title="View fullscreen"]{
-        visibility: hidden;}
-    </style>
-""", unsafe_allow_html=True)
-header = '<p style="font-family:sans-serif; color:grey; font-size: 12px;">\
-        NDP Data Paper 4 V1.1 \
-        </p>'
-st.markdown(header, unsafe_allow_html=True)
-# plot size setup
-#px.defaults.width = 600
-px.defaults.height = 700
-
-st.markdown("----")
 # content
 st.title("Data Paper #4")
 
@@ -70,13 +37,13 @@ st.subheader('Tällä tutkimusappilla voit katsoa, miten seudun väestötiheys o
 # kuntavalitsin
 valinnat = st.multiselect('Valitse kunnat (max 7) - kattavuus koko Suomi', kuntalista, default=['Helsinki','Espoo','Vantaa'])
 st.caption('Ensin valittua käytetään väestögradientin keskipisteenä.')
-vuodet = st.slider('Aseta aikajakso',2010, 2022, (2015, 2022),step=1)
+vuodet = st.slider('Aseta aikajakso',2010, 2023, (2020, 2023),step=1)
 #st.write('<style>div.row-widget.stRadio > div{flex-direction:row;}</style>', unsafe_allow_html=True)
 k = st.empty()
 
 #statgrid change
 @st.cache_data()
-def muutos_h3(kunta_list,y1=2015,y2=2022): #h3 resolution 7
+def muutos_h3(kunta_list,y1=2015,y2=2022):
     url = 'http://geo.stat.fi/geoserver/vaestoruutu/wfs'
     wfs11 = WebFeatureService(url=url, version='1.1.0')
     path = Path(__file__).parent / 'data/kunta_dict.csv'
@@ -116,9 +83,25 @@ def muutos_h3(kunta_list,y1=2015,y2=2022): #h3 resolution 7
     # count change with groupby..
     sums = grid.drop(columns='geometry').groupby(by='grd_id').sum().reset_index()
     sums_df = pd.merge(sums,grid[['grd_id','geometry']],on='grd_id')
-    # create gdf
-    sums_gdf = gpd.GeoDataFrame(sums_df,geometry='geometry',crs=3067)
-    h3_out = sums_gdf.to_crs(4326).h3.geo_to_h3_aggregate(7)
+    
+    # create h3
+    def assing_h3_and_polygons(df_in,reso=8):
+        df = df_in.copy()
+        gdf = gpd.GeoDataFrame(df,geometry='geometry',crs=3067).to_crs(4326)
+        gdf['lng'] = gdf.geometry.x
+        gdf['lat'] = gdf.geometry.y
+        #put id in df
+        df['h3_id'] = gdf.apply(lambda row: h3.latlng_to_cell(row['lat'], row['lng'], res=reso), axis=1)
+        #gen cell polygon geometry
+        df['geojsonpolygon'] = df['h3_id'].apply(lambda cell: h3.cells_to_geo([cell], tight=True))
+        df['geometry'] = df['geojsonpolygon'].apply(lambda p: shape(p))
+        del gdf
+        gdf_out = gpd.GeoDataFrame(df, geometry='geometry')
+        del df
+        return gdf_out.drop(columns='geojsonpolygon')
+    
+    h3_out = assing_h3_and_polygons(sums_df) #gdf
+ 
     # count ratios of change
     h3_out['vaestosuht'] = round((h3_out['vaesto'] / h3_out[f'{y1}_tot'])*100,0)
     h3_out['ika_0_14suht'] = round((h3_out['ika_0_14'] / h3_out[f'{y1}_lap'])*100,0)
@@ -126,72 +109,38 @@ def muutos_h3(kunta_list,y1=2015,y2=2022): #h3 resolution 7
 
     return h3_out
 
-
-#selectors
-if len(valinnat) == 0:
-    st.warning('Valitse ensin kunnat.')
-    st.stop()
-elif len(valinnat) > 7:
-    st.warning('Voit valita max 7.')
-    st.stop()
-else:
-    # generate regional data
-    plot = muutos_h3(valinnat, y1=vuodet[0], y2=vuodet[1])
-    
-    # and scale cirlce
-    try:
-        loc = geocoder.osm(valinnat[0]) #eka kaupunki listalla
-        ring = gpd.GeoDataFrame(pd.DataFrame(), geometry=points_from_xy(loc.lng, loc.lat))
-        ring['geometry'] = ring.geometry.buffer(5000)
-    except:
-        ring = None
-
-    # render map
+# MAP HERE
+with st.expander('Kasvu kartalla', expanded=False):
     mapholder = st.empty()
     k1,k2 = st.columns([1,2])
     ratio = k1.checkbox('Näytä suhteellinen kasvu')
     plot_mode = k2.radio('Muutosdata',('vaesto','ika_0_14','ika_65_'),horizontal=True)
 
+def binit(df,color_col,bin_labels):
+    min1 = df.loc[df[color_col] < 0][color_col].quantile(0.75)
+    min2 = df.loc[df[color_col] < 0][color_col].quantile(0.25)
+    max1 = df.loc[df[color_col] > 0][color_col].quantile(0.25)
+    max2 = df.loc[df[color_col] > 0][color_col].quantile(0.75)
+    top = df.loc[df[color_col] > 0][color_col].quantile(0.99)
+    df['Muutos'] = pd.cut(x=df[color_col],bins=[-np.inf,min2,min1,max1,max2,top,np.inf],labels=bin_labels)
+    df['keep'] = df['Muutos'].notnull()
+    df = df.sort_values('keep', ascending=False).drop_duplicates(subset=['h3_id'])
+    df = df.drop(columns=['keep'])
+    df_out = df.loc[df['Muutos'] != 'ei muutosta']  #[(df[color_col] < -5) | (df[color_col] > 5)]
+    return df_out
+
+def generate_plot_df(df_in,ratio,plot_mode):
+
     # plot mode
     if ratio == 1:
-        color_value = f'{plot_mode}suht'
+        color_col = f'{plot_mode}suht'
     else:
-        color_value = plot_mode
+        color_col = plot_mode
     
-    # discrete colorscales
+    #bin it
     bin_labels = ['taantumaa','hiipumaa','ei muutosta','karttumaa','kasvua','top']
-    color_col = color_value
-    min1 = plot.loc[plot[color_col] < 0][color_col].quantile(0.75)
-    min2 = plot.loc[plot[color_col] < 0][color_col].quantile(0.25)
-    max1 = plot.loc[plot[color_col] > 0][color_col].quantile(0.25)
-    max2 = plot.loc[plot[color_col] > 0][color_col].quantile(0.75)
-    top = plot.loc[plot[color_col] > 0][color_col].quantile(0.90)
-    win = plot[color_col].sort_values(ascending = False).head(2).min()
-    plot['Muutos'] = pd.cut(x=plot[color_col],bins=[-np.inf,min2,min1,max1,max2,top,np.inf],labels=bin_labels)
-
-    #colors
-    bin_colors = {
-        'taantumaa':'cornflowerblue',
-        'hiipumaa':'lightblue',
-        'ei muutosta':'ghostwhite',
-        'karttumaa':'burlywood',
-        'kasvua':'brown',
-        'top':'red',
-    }
-
-    # set range    
-    #range_min = plot[color_value].quantile(0.05)
-    #range_max = plot[color_value].quantile(0.95)
-    #mid_point = abs(0 - range_min / (range_max - range_min))
-
-    #if math.isnan(mid_point):
-    #    mid_point = 0.5
-    #    st.warning('Väriskaalahäiriö')
-
-    #colorscale = [[0, 'rgba(100, 149, 237, 0.85)'],
-    #                [mid_point, 'rgba(255, 255, 255, 0.85)'],
-    #                [1, 'rgba(214, 39, 40, 0.85)']]
-
+    plot = binit(df_in,color_col,bin_labels)
+    
     #plot_mode
     if plot_mode == 'vaesto':
         graph_value = 'tot'
@@ -202,22 +151,30 @@ else:
     else:
         graph_value = 'van'
         value_title = 'väestö yli 65v'
+    
+    #colors
+    bin_colors = {
+        'taantumaa':'cornflowerblue',
+        'hiipumaa':'lightblue',
+        'ei muutosta':'ghostwhite',
+        'karttumaa':'burlywood',
+        'kasvua':'brown',
+        'top':'red',
+    }
 
     # plot
     lat = plot.unary_union.centroid.y
-    lon = plot.unary_union.centroid.x
+    lng = plot.unary_union.centroid.x
     fig = px.choropleth_mapbox(plot,
                                 geojson=plot.geometry,
                                 locations=plot.index,
                                 title=f'Väestötiheyden muutos {vuodet[0]}-{vuodet[1]}, ({value_title})',
                                 color='Muutos',
                                 hover_data=['vaesto','ika_0_14','ika_65_','vaestosuht','ika_0_14suht','ika_65_suht'],
-                                center={"lat": lat, "lon": lon},
+                                center={"lat": lat, "lon": lng},
                                 mapbox_style=my_style,
                                 color_discrete_map=bin_colors,
                                 category_orders={'Muutos':bin_labels},
-                                #color_continuous_scale=colorscale,
-                                #range_color=(range_min,range_max),
                                 labels={'vaesto':'Muutos','ika_0_14':'Muutos lapset','ika_65_':'Muutos vanh.',
                                         'vaestosuht':'Muutos%','ika_0_14suht':'Muutos% lapset','ika_65_suht':'Muutos% vanh.'
                                         },
@@ -234,20 +191,22 @@ else:
                                     x=0.02
                                 )
                                 )
-    if ring is not None:
-        fig.update_layout(
-                    mapbox={
-                        "layers": [
-                            {
-                                "source": json.loads(ring.to_crs(4326).to_json()),
-                                #"below": "traces",
-                                "type": "line",
-                                "color": "black",
-                                "line": {"width": 0.5,"dash":[5,5]},
-                            }
-                        ]
-                    }
-                )
+
+    return plot, fig, graph_value, value_title
+
+    
+
+#selectors
+if len(valinnat) == 0:
+    st.warning('Valitse kunnat')
+    st.stop()
+elif len(valinnat) > 7:
+    st.warning('max 5')
+    st.stop()
+else:
+    # generate regional data
+    growth_df = muutos_h3(valinnat, y1=vuodet[0], y2=vuodet[1])
+    plot, fig, graph_value, value_title = generate_plot_df(growth_df,ratio,plot_mode)
     mapholder.plotly_chart(fig, use_container_width=True)
 
 st.markdown('---')
@@ -269,34 +228,33 @@ m1, m2, m3 = st.columns(3)
 m1.metric(label="Väestökasvu", value=f"{net:.0f}", delta=f"TOP osuus {net_q}%")
 m2.metric(label="Lapsikasvu", value=f"{lap:.0f}", delta=f"TOP osuus {lap_q}%")
 m3.metric(label="Seniorikasvu", value=f"{van:.0f}", delta=f"TOP osuus {van_q}%")
-st.caption('Kasvu on ko. ryhmän nettokasvu, mutta TOP-kohteiden(=kasvu yli 90. prosentiilin) osuus on laskettu vain kasvualueista, ei nettokasvusta.')
+st.caption('Kasvu on ko. ryhmän nettokasvu, mutta TOP-kohteiden(persentiili) osuus on laskettu vain kasvualueista, ei nettokasvusta.')
 st.markdown('---')
 # graph placeholder
 st.subheader('Väestögradientti')
 den_holder = st.empty()
 
-def den_grad(_h3_df,center_add,value,reso=7,rings=7):
+def den_grad(df_in,center_add,value,reso=8,rings=7):
+    #put h3 as index
+    h3_df = df_in.set_index('h3_id')
     # create center hex
     loc = geocoder.mapbox(center_add, key=mbtoken)
-    center_df = pd.DataFrame({'lat':loc.lat,'lng':loc.lng},index=[0])
-    h3_center = center_df.h3.geo_to_h3(reso)
-
+    h3_center = h3.latlng_to_cell(loc.lat,loc.lng, res=reso)
+    
     # create grad_df to sum medians from the rings
     grad_df = pd.DataFrame()
     grads = []
     popsums = []
-    # create ring columns around center_df
+    # create ring columns around h3_center
     for i in range(1,rings+1):
         ring = pd.DataFrame()
-        h3_center[f'h3_r{i}'] = h3_center.h3.k_ring(i)['h3_k_ring']
-        ring[f'h3_0{reso}'] = h3_center[f'h3_r{i}'][0]
+        ring['h3_id'] = h3.grid_disk(h3_center, i)
         ring[value] = 0 #np.NaN
-        ring.set_index(f'h3_0{reso}', inplace=True)
-        ring[value].update(_h3_df[value])
+        ring.set_index('h3_id', inplace=True)
+        ring[value].update(h3_df[value])
         # remove zeros
         ring = ring.loc[ring[value] != 0]
-        # calc median devided by 5 km
-        popmedian = ring[value].median() / 5
+        popmedian = ring[value].median()
         popsum = ring[value].sum()
         grads.append(popmedian)
         popsums.append(popsum)
@@ -305,20 +263,21 @@ def den_grad(_h3_df,center_add,value,reso=7,rings=7):
     # create ring names
     grad_df.reset_index(drop=False, inplace=True)
     grad_df.rename(columns={'index':'ring'}, inplace=True)
-    grad_df['ring'] = 'R'+ grad_df['ring'].astype(str)
+    grad_df['ring'] = grad_df['ring'].astype(str) + ' km'
     return grad_df
 
 
 # and density gradients + rings
-den0 = den_grad(_h3_df=plot,center_add=valinnat[0],value=f'{vuodet[0]}_{graph_value}',reso=7,rings=16)
-den1 = den_grad(_h3_df=plot,center_add=valinnat[0],value=f'{vuodet[1]}_{graph_value}',reso=7,rings=16)
+den0 = den_grad(df_in=plot,center_add=valinnat[0],value=f'{vuodet[0]}_{graph_value}',reso=8,rings=16)
+den1 = den_grad(df_in=plot,center_add=valinnat[0],value=f'{vuodet[1]}_{graph_value}',reso=8,rings=16)
+
 
 # graph plotter
 import plotly.graph_objects as go
 def generate_den_graphs(den0,den1):
     # 
     def plot_muutos(df1,df2):
-        fig = go.Figure(layout=go.Layout(title=go.layout.Title(text=f'Väestötiheys ~km² keskustaetäisyyden mukaan (mediaani, {value_title})')))
+        fig = go.Figure(layout=go.Layout(title=go.layout.Title(text=f"Luokan '{value_title}' tiheyden(~km² mediaani) muutos keskustaetäisyyden mukaan")))
         fig.add_trace(go.Scatter(x=df1['ring'],y=df1['pop_median_5km2'],name=f'{vuodet[0]}',
                                 fill='tozeroy',fillcolor='rgba(222, 184, 135, 0.5)',
                                 mode='lines', line=dict(width=0.5, color='rgb(0, 0, 0)')))
@@ -351,25 +310,16 @@ def generate_den_graphs(den0,den1):
 
 with den_holder:
     generate_den_graphs(den0,den1)
+    
 st.caption("data: [stat.fi](https://www.stat.fi/org/avoindata/paikkatietoaineistot/tilastoruudukko_1km.html)")
     
-with st.expander('Selite',expanded=False):
-    selite = ''' 
-        Heksagonihila muodostuu h3geo.org -kirjaston heksagoneista, joihin on summattu asukasmäärät 
-        kuhunkin heksagoniin osuvien 1x1km väestöruututietojen keskipisteiden mukaan (soveltuu vain seudulliseen tarkasteluun). Väestögradientti on muodostettu 
-        heksagonikehistä (R1,R2,R3..) jotka ovat noin 2km välein. Katkoviivalla on merkitty n. 5km keskustaetäisyys. 
-        Luokittelu on dynaaminen seudun arvojen ala- ja yläkvarttaalien mukaan:
-        Heksat, joissa muutos on yli kasvun/vähenemän alakvarttaalin on luokiteltu karttumaksi/hiipumaksi ja 
-        heksat, joissa muutos on yli yläkvarttaalien ovat vastaavasti kasvua/taantumaa.
-        '''
-    st.caption(selite)
+selite = ''' 
+    Heksagonihila muodostuu h3geo.org -kirjaston heksagoneista, joihin on summattu asukasmäärät 
+    kuhunkin heksagoniin osuvien 1x1km väestöruututietojen keskipisteiden mukaan (soveltuu vain seudulliseen tarkasteluun). Väestögradientti on muodostettu 
+    heksagonikehistä (R1,R2,R3..) jotka ovat noin 2km välein. Katkoviivalla on merkitty n. 5km keskustaetäisyys. 
+    Luokittelu on dynaaminen seudun arvojen ala- ja yläkvarttaalien mukaan:
+    Heksat, joissa muutos on yli kasvun/vähenemän alakvarttaalin on luokiteltu karttumaksi/hiipumaksi ja 
+    heksat, joissa muutos on yli yläkvarttaalien ovat vastaavasti kasvua/taantumaa.
+    '''
+#st.caption(selite)
 
-#footer
-st.markdown('---')
-footer_title = '''
-**NDP Project**
-[![MIT license](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/teemuja/NDP/blob/main/LICENSE) 
-'''
-st.markdown(footer_title)
-disclamer = 'Data papers are constant work in progress and will be upgraded, changed & fixed while research go on.'
-st.caption('Disclaimer: ' + disclamer)

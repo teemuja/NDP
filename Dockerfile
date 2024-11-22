@@ -1,18 +1,14 @@
-#https://github.com/OSGeo/gdal/pkgs/container/gdal
-FROM ghcr.io/osgeo/gdal:ubuntu-small-3.8.4
-
-# Install python3-pip and git
+FROM ghcr.io/osgeo/gdal:ubuntu-small-latest
 RUN apt-get update && \
-    apt-get install -y python3-pip software-properties-common && \
+    apt-get install -y python3-pip python3-venv software-properties-common && \
     add-apt-repository ppa:git-core/ppa && \
-    apt-get -y install git && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-WORKDIR app/
-
-COPY ./app .
-RUN python -m pip install --upgrade pip
-RUN python -m pip install -r requirements.txt
-
+    apt-get -y install git
+WORKDIR /app
+COPY ./app /app
+RUN python3 -m venv /app/.venv && \
+    /app/.venv/bin/pip install --upgrade pip && \
+    /app/.venv/bin/pip install -r /app/requirements.txt && \
+    /app/.venv/bin/pip install --upgrade pandas
+ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8501
+CMD ["/.venv/bin/streamlit", "run", "app.py"]

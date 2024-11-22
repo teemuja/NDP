@@ -1,6 +1,7 @@
 # NDP app always beta a lot
 import pandas as pd
 import geopandas as gpd
+import h3
 import numpy as np
 import streamlit as st
 import shapely.speedups
@@ -9,40 +10,11 @@ import plotly.express as px
 px.set_mapbox_access_token(st.secrets['MAPBOX_TOKEN'])
 my_style = st.secrets['MAPBOX_STYLE']
 from pathlib import Path
-import h3pandas as h3
 from shapely import wkt
 
 
-# page setup ---------------------------------------------------------------
-st.set_page_config(page_title="Data Paper #1", layout="wide", initial_sidebar_state='collapsed')
-padding = 1
-st.markdown(f""" <style>
-    .reportview-container .main .block-container{{
-        padding-top: {padding}rem;
-        padding-right: {padding}rem;
-        padding-left: {padding}rem;
-        padding-bottom: {padding}rem;
-    }}
-    </style> """, unsafe_allow_html=True)
-st.markdown("""
-    <style>
-    div.stButton > button:first-child {
-        background-color: #fab43a;
-        color:#ffffff;
-    }
-    div.stButton > button:hover {
-        background-color: #e75d35; 
-        color:#ffffff;
-        }
-    [data-testid="stMetricDelta"] svg {
-            display: none;}
-    button[title="View fullscreen"]{
-        visibility: hidden;}
-    </style>
-""", unsafe_allow_html=True)
-
 header = '<p style="font-family:sans-serif; color:grey; font-size: 12px;">\
-        NDP data paper #1 V0.1\
+        NDP data paper #1 V0.2\
         </p>'
 st.markdown(header, unsafe_allow_html=True)
 # plot size setup
@@ -185,13 +157,3 @@ if mydecade != 'Decade..':
     </p>
     '''
     st.markdown(source, unsafe_allow_html=True)
-
-#footer
-st.markdown('---')
-footer_title = '''
-**NDP Project**
-[![MIT license](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/teemuja/NDP/blob/main/LICENSE) 
-'''
-st.markdown(footer_title)
-disclamer = 'Data papers are constant work in progress and will be upgraded, changed & fixed while research go on.'
-st.caption('Disclaimer: ' + disclamer)
