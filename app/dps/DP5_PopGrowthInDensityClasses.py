@@ -2,10 +2,9 @@
 import pandas as pd
 import geopandas as gpd
 import numpy as np
+import json
 from scipy.stats import boxcox
 import streamlit as st
-import shapely.speedups
-shapely.speedups.enable()
 import plotly.express as px
 import plotly.graph_objs as go
 px.set_mapbox_access_token(st.secrets['MAPBOX_TOKEN'])
@@ -13,16 +12,17 @@ my_style = st.secrets['MAPBOX_STYLE']
 from pathlib import Path
 import h3
 from shapely import wkt
+from shapely.geometry import shape
 
 
 # content
 st.title("Data Paper #4")
-st.subheader("Population Change in density classes in HMA")
+st.subheader("Väestömuutos eri maankäytön tehokkuuden luokissa")
 ingress = '''
 <p style="font-family:sans-serif; color:Black; font-size: 14px;">
-This data paper studies the growth of the Helsinki metropolitan area (HMA) in the zones designated by 
-<a href="https://ckan.ymparisto.fi/en/dataset/harva-ja-tihea-taajama-alue" target="_blank">SYKE</a>.  
-Data is prepared in cooperation with PhD(cand) Mathew Page from University of Helsinki.
+Tämä tutkimusappi tarkastelee väestökasvua 
+<a href="https://ckan.ymparisto.fi/en/dataset/harva-ja-tihea-taajama-alue" target="_blank">SYKEn</a>  
+laatimissa maankäytön tehokkuuden luokissa. Data laadittiin ReUrbia-hankkeessa yhteistyössä väistöskirjatutkija Mathew Pagen kanssa.
 </p>
 '''
 st.markdown(ingress, unsafe_allow_html=True)
@@ -44,7 +44,7 @@ def load_data():
     # rename
     gdf.rename(columns={'pop19':'pop20'}, inplace=True)
     gdf.rename(columns={'GFA19':'GFA20'}, inplace=True)
-    return gdf, center
+    return gdf.reset_index(), center
 
 mygdf,center = load_data()
 
@@ -57,11 +57,11 @@ yrs = {
     '1990':'Type90'
 }
 #year
-year = c1.selectbox('Zoning year', ['2020','2010','2000','1990',])
+year = c1.selectbox('Vuosi', ['2020','2010','2000','1990',])
 #zone
-zone = c2.selectbox('Zone',['Tiheä taajama','Harva taajama','Kylät ja maaseutu'])
+zone = c2.selectbox('Vyöhyke',['Tiheä taajama','Harva taajama','Kylät ja maaseutu'])
 #reso
-resoh = c3.radio('Resolution',['H9','H8','H7'], horizontal=True) #['~5km²','~1km²','~1ha']
+resoh = c3.radio('Resoluutio',['H9','H8','H7'], horizontal=True) #['~5km²','~1km²','~1ha']
 reso = int(resoh[-1])
 
 #legend
@@ -72,47 +72,66 @@ keys = {
     'Pienkylät':4,
     'Maaseutuasutus':5
     }
-# filter
+
+
+# filter & agg
+def aggregate_h3_resolution(gdf_in, h3_col="h3_10", target_reso=9):
+    df = gdf_in.drop(columns='geometry')
+    df["h3_parent"] = df[h3_col].apply(lambda x: h3.cell_to_parent(x, target_reso))
+    agg_df = (
+        df.groupby("h3_parent")
+        .agg('sum')
+        .reset_index()
+        ).drop(columns=h3_col)
+    agg_df = agg_df.rename(columns={"h3_parent": "h3_id"})
+    agg_df['geojsonpolygon'] = agg_df["h3_id"].apply(lambda cell: h3.cells_to_geo([cell], tight=True))
+    agg_df['geometry'] = agg_df['geojsonpolygon'].apply(lambda p: shape(p))
+    agg_gdf = gpd.GeoDataFrame(agg_df,geometry='geometry',crs=4326)
+    return agg_gdf.drop(columns='geojsonpolygon')
+
 if zone != 'Kylät ja maaseutu':
-    plot = mygdf.loc[mygdf[yrs[year]] == keys[zone]].h3.geo_to_h3_aggregate(reso)
+    filtered = mygdf.loc[mygdf[yrs[year]] == keys[zone]]
+    plot = aggregate_h3_resolution(filtered, h3_col='h3_10', target_reso=reso)
+
 else:
     subzones = ['Kylät','Pienkylät','Maaseutuasutus'] #=[3,4,5]
-    plot = mygdf.loc[mygdf[yrs[year]].isin([3,4,5])].h3.geo_to_h3_aggregate(reso)
+    filtered = mygdf.loc[mygdf[yrs[year]].isin([3,4,5])]
+    plot = aggregate_h3_resolution(filtered, target_reso=reso)
 
 # map
 with st.expander('Map', expanded=False):
     #feature to plot
-    densityof = st.radio('Density of',['Population','GFA'], horizontal=True)
+    densityof = st.radio('Tehokkuusmittari',['Väestö','Kerrosala'], horizontal=True)
     #calc densities
-    plot['h3_cell_area'] = plot['h3_10'].apply(lambda x: h3.cell_area(unit='m^2'))
+    plot['h3_cell_area'] = plot['h3_id'].apply(lambda x: h3.cell_area(h=x,unit='m^2'))
     yr_list = ['90','00','10','20']
     for yr in yr_list:
         plot[f'den_pop{yr}'] = round(plot[f'pop{yr}'] / (plot['h3_cell_area']/10000),-1)
         plot[f'den_gfa{yr}'] = round(plot[f'GFA{yr}'] / plot['h3_cell_area'],3)
-        plot[f'class_pop{yr}'] = 'less'
-        plot[f'class_gfa{yr}'] = 'less'
+        plot[f'class_pop{yr}'] = 'harva'
+        plot[f'class_gfa{yr}'] = 'harva'
         #popdens
-        plot.loc[plot[f'den_pop{yr}'] > 1, f'class_pop{yr}'] = 'sprawl'
-        plot.loc[plot[f'den_pop{yr}'] > 10, f'class_pop{yr}'] = 'spacious'
-        plot.loc[plot[f'den_pop{yr}'] > 50, f'class_pop{yr}'] = 'compact'
-        plot.loc[plot[f'den_pop{yr}'] > 70, f'class_pop{yr}'] = 'dense'
+        plot.loc[plot[f'den_pop{yr}'] > 1, f'class_pop{yr}'] = "hajanainen" #'sprawl'
+        plot.loc[plot[f'den_pop{yr}'] > 10, f'class_pop{yr}'] = "väljä" #'spacious'
+        plot.loc[plot[f'den_pop{yr}'] > 50, f'class_pop{yr}'] = "kompakti" #'compact'
+        plot.loc[plot[f'den_pop{yr}'] > 70, f'class_pop{yr}'] = "tiivis" #'dense'
         #gfadense
-        plot.loc[plot[f'den_gfa{yr}'] > 0.10, f'class_gfa{yr}'] = 'sprawl'
-        plot.loc[plot[f'den_gfa{yr}'] > 0.15, f'class_gfa{yr}'] = 'spacious'
-        plot.loc[plot[f'den_gfa{yr}'] > 0.30, f'class_gfa{yr}'] = 'compact'
-        plot.loc[plot[f'den_gfa{yr}'] > 0.60, f'class_gfa{yr}'] = 'dense'
+        plot.loc[plot[f'den_gfa{yr}'] > 0.10, f'class_gfa{yr}'] = 'hajanainen'
+        plot.loc[plot[f'den_gfa{yr}'] > 0.15, f'class_gfa{yr}'] = 'väljä'
+        plot.loc[plot[f'den_gfa{yr}'] > 0.30, f'class_gfa{yr}'] = 'kompakti'
+        plot.loc[plot[f'den_gfa{yr}'] > 0.60, f'class_gfa{yr}'] = 'tiivis'
 
     colormap = {
-        "dense": "darkgoldenrod",
-        "compact": "darkolivegreen",
-        "spacious": "lightgreen",
-        "sprawl": "lightblue",
-        "less":"lightcyan"
+        "tiivis": "darkgoldenrod",
+        "kompakti": "darkolivegreen",
+        "väljä": "lightgreen",
+        "hajanainen": "lightblue",
+        "harva":"lightcyan"
     }
 
     lat = center[0]
     lon = center[1]
-    if densityof == 'Population':
+    if densityof == 'Väestö':
         mycolor = f'class_pop{yr}'
         myclass = 'pop'
     else:
@@ -120,14 +139,14 @@ with st.expander('Map', expanded=False):
         myclass = 'gfa'
 
     fig_map = px.choropleth_mapbox(plot,
-                            geojson=plot.geometry,
+                            geojson = plot.geometry, #plot.geometry.iloc[0].__geo_interface__,
                             locations=plot.index,
                             title=f"Zone '{zone}' based on year {year} in resolution H{reso}.",
                             color=mycolor,
                             hover_data=[f'den_pop{yr}',f'den_gfa{yr}'],
                             color_discrete_map=colormap,
-                            labels={f'class_{myclass}{yr}': f'Density of {densityof}'},
-                            category_orders={f'class_{myclass}{yr}': ['dense','compact','spacious','sprawl','less']},
+                            labels={f'class_{myclass}{yr}': f'{densityof}'},
+                            category_orders={f'class_{myclass}{yr}': ['tiivis','kompakti','väljä','hajanainen','harva']},
                             #range_color=(range_min, range_max),
                             #color_continuous_scale=px.colors.sequential.Inferno[::-1],
                             center={"lat": lat, "lon": lon},
@@ -152,12 +171,8 @@ with st.expander('Map', expanded=False):
     #st.dataframe(plot.drop(columns='geometry'))
 
 # graphs
-st.subheader(f"Population shares in density classes. ")
+st.subheader(f"Väestöosuudet eri luokissa")
 hex_area = round(plot['h3_cell_area'].mean()/10000,1)
-if hex_area < 100:
-    st.markdown(f'Zone "{zone}" in resolution H{reso} (hexagon area: {hex_area} ha)')
-else:
-    st.markdown(f'Zone "{zone}" in resolution H{reso} (hexagon area: {round(hex_area/100,1)} km²)')
 
 #growth plot
 import plotly.graph_objects as go
@@ -196,14 +211,14 @@ def share_plot(df):
     fig.add_traces(go.Scatter(x=df.index, y = df['share_50'],name='50%', mode = 'lines', line=dict(color=linecolors[2])))
     fig.add_traces(go.Scatter(x=df.index, y = df['share_25'],name='25%', mode = 'lines', line=dict(color=linecolors[3])))
     fig.add_traces(go.Scatter(x=df.index, y = df['share_10'],name='10%', mode = 'lines', line=dict(color=linecolors[4])))
-    fig.update_layout(title_text=f"Population share in pop. density quantiles (H{reso}).")
+    fig.update_layout(title_text=f"Väestön osuus eri luokissa (H{reso}).")
     fig.update_xaxes(title='Year')
     fig.update_yaxes(title='% of total population above quantile')
     return fig
 
 # pop class shares
-def density_class_share(plot,feat='pop'):
-    den_list = ["dense","compact","spacious","sprawl","less"]
+den_list = ['tiivis','kompakti','väljä','hajanainen','harva'] #["dense","compact","spacious","sprawl","less"]
+def density_class_share(plot,feat,den_list):
     list_of_df_shares = []
     for d in den_list:
         pop_shares_in_class_d = []
@@ -219,37 +234,37 @@ def density_class_share(plot,feat='pop'):
     df_out = pd.concat(list_of_df_shares, axis=1)
     return df_out
 
-pop_shares = density_class_share(plot,feat='pop')
-gfa_shares = density_class_share(plot,feat='gfa')
+pop_shares = density_class_share(plot,feat='pop',den_list=den_list)
+gfa_shares = density_class_share(plot,feat='gfa',den_list=den_list)
 
 def pop_share_plot(df):
     linecolors = px.colors.qualitative.Plotly
     fig = go.Figure()
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_dense'],name='dense', mode = 'lines', line=dict(color=linecolors[0])))
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_compact'],name='compact', mode = 'lines', line=dict(color=linecolors[1])))
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_spacious'],name='spacious', mode = 'lines', line=dict(color=linecolors[2])))
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_sprawl'],name='sprawl', mode = 'lines', line=dict(color=linecolors[3])))
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_less'],name='less', mode = 'lines', line=dict(color=linecolors[4])))
-    fig.update_layout(title_text=f"Population share by POP density classes (resolution H{reso}).")
-    fig.update_xaxes(title='Year')
-    fig.update_yaxes(title='% of total population in class')
+    fig.add_traces(go.Scatter(x=df.index, y = df[f'share_{den_list[0]}'],name=den_list[0], mode = 'lines', line=dict(color=linecolors[0])))
+    fig.add_traces(go.Scatter(x=df.index, y = df[f'share_{den_list[1]}'],name=den_list[1], mode = 'lines', line=dict(color=linecolors[1])))
+    fig.add_traces(go.Scatter(x=df.index, y = df[f'share_{den_list[2]}'],name=den_list[2], mode = 'lines', line=dict(color=linecolors[2])))
+    fig.add_traces(go.Scatter(x=df.index, y = df[f'share_{den_list[3]}'],name=den_list[3], mode = 'lines', line=dict(color=linecolors[3])))
+    fig.add_traces(go.Scatter(x=df.index, y = df[f'share_{den_list[4]}'],name=den_list[4], mode = 'lines', line=dict(color=linecolors[4])))
+    fig.update_layout(title_text=f"Väestöosuudet tiiviysluokissa väestön mukaan")
+    fig.update_xaxes(title='Vuosi')
+    fig.update_yaxes(title='% väestöstä luokassa')
     return fig
 
 def gfa_share_plot(df):
     linecolors = px.colors.qualitative.Plotly
     fig = go.Figure()
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_dense'],name='dense', mode = 'lines', line=dict(color=linecolors[0])))
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_compact'],name='compact', mode = 'lines', line=dict(color=linecolors[1])))
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_spacious'],name='spacious', mode = 'lines', line=dict(color=linecolors[2])))
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_sprawl'],name='sprawl', mode = 'lines', line=dict(color=linecolors[3])))
-    fig.add_traces(go.Scatter(x=df.index, y = df['share_less'],name='less', mode = 'lines', line=dict(color=linecolors[4])))
-    fig.update_layout(title_text=f"Population share by GFA density classes (resolution H{reso}).")
-    fig.update_xaxes(title='Year')
-    fig.update_yaxes(title='% of total population in class')
+    fig.add_traces(go.Scatter(x=df.index, y = df[f'share_{den_list[0]}'],name=den_list[0], mode = 'lines', line=dict(color=linecolors[0])))
+    fig.add_traces(go.Scatter(x=df.index, y = df[f'share_{den_list[1]}'],name=den_list[1], mode = 'lines', line=dict(color=linecolors[1])))
+    fig.add_traces(go.Scatter(x=df.index, y = df[f'share_{den_list[2]}'],name=den_list[2], mode = 'lines', line=dict(color=linecolors[2])))
+    fig.add_traces(go.Scatter(x=df.index, y = df[f'share_{den_list[3]}'],name=den_list[3], mode = 'lines', line=dict(color=linecolors[3])))
+    fig.add_traces(go.Scatter(x=df.index, y = df[f'share_{den_list[4]}'],name=den_list[4], mode = 'lines', line=dict(color=linecolors[4])))
+    fig.update_layout(title_text=f"Väestöosuudet tiiviysluokissa kerrosalan mukaan")
+    fig.update_xaxes(title='Vuosi')
+    fig.update_yaxes(title='% väestöstä luokassa')
     return fig
 
 #plots in tabs
-tab1,tab2,tab3 =  st.tabs(['In POP density classes','In GFA density classes','PDF download'])
+tab1,tab2 =  st.tabs(['In POP density classes','In GFA density classes'])
 
 with tab1:
     fig_pop_share = pop_share_plot(pop_shares)
@@ -257,47 +272,7 @@ with tab1:
 with tab2:
     fig_gfa_share = gfa_share_plot(gfa_shares)
     st.plotly_chart(fig_gfa_share, use_container_width=True)
-with tab3:
-    import io
-    @st.cache_data()
-    def gen_pdf(fig):
-        buffer_fig = io.BytesIO()
-        fig.write_image(file=buffer_fig, format="pdf")
-        return buffer_fig
-    
-    pdf_out = None
-    d1,d2 = st.columns([1,2])
-    with d1.form("my_form",clear_on_submit=True):
-        my_sel = st.selectbox('',['Select the graph..','POP density classes','GFA density classes'])
-        if my_sel == 'POP density classes':
-            my_fig = fig_pop_share
-        elif my_sel == 'GFA density classes':
-            my_fig = fig_gfa_share
-        else:
-            my_fig = None
 
-        submitted = st.form_submit_button("Generate PDF")
-
-        if submitted:
-            if my_fig is not None:
-                pdf_out = gen_pdf(my_fig)
-            else:
-                st.warning('Select figure')
-                st.stop()
-
-    # download button must be outside the form
-    if pdf_out is not None:
-        d2.markdown('###')
-        d2.markdown('###')
-        d2.download_button(
-            label="Download pdf",
-            data=pdf_out,
-            file_name="figure_map.pdf",
-            mime="application/pdf",
-            )
-
-
-st.markdown('---')
 selite = """
 <b>Density classification:</b><br>
 <i>
@@ -309,14 +284,4 @@ Less: e < 0.10 | pop/ha < 2 <br>
 </i>
 <br>
 """
-st.markdown(selite, unsafe_allow_html=True)
-
-#footer
-st.markdown('---')
-footer_title = '''
-**NDP Project**
-[![MIT license](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/teemuja/NDP/blob/main/LICENSE) 
-'''
-st.markdown(footer_title)
-disclamer = 'Data papers are constant work in progress and will be upgraded, changed & fixed while research go on.'
-st.caption('Disclaimer: ' + disclamer)
+#st.markdown(selite, unsafe_allow_html=True)

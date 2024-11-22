@@ -12,7 +12,7 @@ button[title="View fullscreen"]{
 st.sidebar.header("NDP Data Papers",divider='green')
 header_ing = '''
 <p style="font-family:sans-serif; color:dimgrey; font-size: 14px;">
-CFUA is a PhD research project by <a href="https://orcid.org/0000-0003-0168-7062" target="_blank">Teemu Jama</a>.  \
+NDP is a PhD research project by <a href="https://orcid.org/0000-0003-0168-7062" target="_blank">Teemu Jama</a>.  \
 </p>
 '''
 st.sidebar.markdown(header_ing, unsafe_allow_html=True)
@@ -35,12 +35,12 @@ dp1 = st.Page("dps/DP1_ChangeInScale.py", title="Change In Scale")
 dp2 = st.Page("dps/DP2_DensityAndAmenities.py", title="Density And Amenities")
 dp3 = st.Page("dps/DP3_TrueDensityNomograms.py", title="True Density Nomograms")
 dp4 = st.Page("dps/DP4_TehokkuusGradientitSuomessa.py", title="Tehokkuus Gradientit Suomessa")
-#dp5 = st.Page("dps/DP5_PopGrowthInDensityClasses.py", title="Väestökasvu eri maankäytön tiiviysluokissa")
+dp5 = st.Page("dps/DP5_PopGrowthInDensityClasses.py", title="Väestökasvu eri maankäytön tiiviysluokissa")
 
 menu = st.navigation(
     {
         #"Home": [home_page],
-        "Data Papers": [dp1,dp2,dp3,dp4]
+        "Data Papers": [dp1,dp2,dp3,dp4,dp5]
     }
 )
 menu.run()
