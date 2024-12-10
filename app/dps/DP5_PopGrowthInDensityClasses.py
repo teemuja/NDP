@@ -22,7 +22,8 @@ ingress = '''
 <p style="font-family:sans-serif; color:Black; font-size: 14px;">
 Tämä tutkimusappi tarkastelee väestökasvua 
 <a href="https://ckan.ymparisto.fi/en/dataset/harva-ja-tihea-taajama-alue" target="_blank">SYKEn</a>  
-laatimissa maankäytön tehokkuuden luokissa. Data laadittiin ReUrbia-hankkeessa yhteistyössä väistöskirjatutkija Mathew Pagen kanssa.
+laatimissa maankäytön tehokkuuden luokissa. Tarkastelu toiminut taustamateriaalina artikkelissa:  
+<a href="https://doi.org/10.1080/09654313.2024.2370314" target="_blank">Density as an indicator of sustainable urban development: insights from Helsinki?</a>
 </p>
 '''
 st.markdown(ingress, unsafe_allow_html=True)
@@ -99,7 +100,7 @@ else:
     plot = aggregate_h3_resolution(filtered, target_reso=reso)
 
 # map
-with st.expander('Map', expanded=False):
+with st.expander('Tehokkuus kartalla', expanded=False):
     #feature to plot
     densityof = st.radio('Tehokkuusmittari',['Väestö','Kerrosala'], horizontal=True)
     #calc densities
@@ -141,7 +142,7 @@ with st.expander('Map', expanded=False):
     fig_map = px.choropleth_mapbox(plot,
                             geojson = plot.geometry, #plot.geometry.iloc[0].__geo_interface__,
                             locations=plot.index,
-                            title=f"Zone '{zone}' based on year {year} in resolution H{reso}.",
+                            title=f"Vyöhyke '{zone}' vuoden {year} luokittelun mukaan resoluutiolla H{reso}.",
                             color=mycolor,
                             hover_data=[f'den_pop{yr}',f'den_gfa{yr}'],
                             color_discrete_map=colormap,
@@ -264,7 +265,7 @@ def gfa_share_plot(df):
     return fig
 
 #plots in tabs
-tab1,tab2 =  st.tabs(['In POP density classes','In GFA density classes'])
+tab1,tab2 =  st.tabs(['Väestötiheyden mukaan','Kerrosalamäärän mukaan'])
 
 with tab1:
     fig_pop_share = pop_share_plot(pop_shares)
@@ -274,14 +275,15 @@ with tab2:
     st.plotly_chart(fig_gfa_share, use_container_width=True)
 
 selite = """
-<b>Density classification:</b><br>
+<b>Luokittelu:</b><br>
 <i>
-Dense: e > 0.6 | pop/ha > 70 <br>
-Compact: 0.6 - 0.3 | 70 - 50 <br>
-Spacious: 0.3 - 0.15 | 50 - 10 <br>
-Sprawl: 0.15 - 0.10 | 10 - 2 <br>
-Less: e < 0.10 | pop/ha < 2 <br>
+Tiivis: ae > 0.6 | as/ha > 70 <br>
+Kompakti: 0.6 - 0.3 | 70 - 50 <br>
+Väljä: 0.3 - 0.15 | 50 - 10 <br>
+Hajanainen: 0.15 - 0.10 | 10 - 2 <br>
+Harva: ae < 0.10 | as/ha < 2 <br>
+[ ae = aluetehokkuus ]
 </i>
 <br>
 """
-#st.markdown(selite, unsafe_allow_html=True)
+st.markdown(selite, unsafe_allow_html=True)
